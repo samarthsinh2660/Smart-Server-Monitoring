@@ -1,0 +1,25 @@
+# Go build output
+bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# Frontend build output
+web/node_modules/
+web/dist/
+
+# Local settings and runtime data
+.env
+.env.*
+!.env.example
+config/local.yaml
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store

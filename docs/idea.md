@@ -2,34 +2,59 @@
 
 ## Project summary
 
-Build a two server prototype controlled by a Raspberry Pi. The Pi watches the primary laptop, wakes a standby laptop when the primary is overloaded or unavailable, waits for its application to become healthy, and then sends traffic to both servers or fails over to the standby. A dashboard records each decision and shows the current state.
+Build a two server prototype controlled by a Raspberry Pi. The Pi watches the primary laptop, wakes a standby laptop when the primary is overloaded or unavailable, waits for its application to become healthy, and then sends traffic to both servers or fails over to the standby. A dashboard records each decision and shows the current state. A small model on the Pi also predicts rising load and can wake the standby before overload occurs.
 
 This demonstrates physical scaling and failover with one standby laptop. It does not provide unlimited autoscaling or zero downtime.
 
 ## Why this is an IoT project
 
-The Raspberry Pi is an independent edge controller connected to physical machines on a local network. It observes server and application signals, makes a local decision, sends a Wake-on-LAN (WoL) packet, and changes the physical infrastructure's operating state.
+The Raspberry Pi is an independent edge controller connected to physical machines on a local network. It observes server and application signals, forecasts load from recent trends, makes a local decision, sends a Wake-on-LAN (WoL) packet, and changes the physical infrastructure's operating state.
 
 ## System architecture
 
 ```mermaid
 flowchart LR
-    U[Client / load generator] -->|HTTP| P[Raspberry Pi]
-    P --> LB[Reverse proxy]
-    P --> C[Controller + dashboard API]
-    C --> DB[(SQLite events + metrics)]
-    C -->|poll metrics and health| A1[Primary laptop]
-    C -->|WoL magic packet| A2[Standby laptop]
-    C -->|enable healthy targets| LB
-    LB -->|normal traffic| S1[Primary app]
-    LB -->|after activation| S2[Standby app]
-    A1 --- S1
-    A2 --- S2
+    Users[Application users] -->|HTTP requests| Proxy
+    Operator[Operator browser] -->|Dashboard| Next
+
+    subgraph Pi[Raspberry Pi - always on]
+        Proxy[HAProxy load balancer]
+        Next[Next.js dashboard on Node.js]
+        Controller[Go controller and private API]
+        Store[(SQLite metrics and events)]
+        Next -->|server-side API calls| Controller
+        Model[Tiny predictive model in Go]
+        Controller --> Store
+        Store -->|recent trends| Model
+        Model -->|risk score| Controller
+        Controller -->|enable or disable healthy targets| Proxy
+    end
+
+    subgraph Primary[Laptop 1 - primary]
+        Agent1[Go metrics agent]
+        App1[Go application in Docker]
+    end
+
+    subgraph Standby[Laptop 2 - standby]
+        NIC2[WoL network adapter]
+        Agent2[Go metrics agent after boot]
+        App2[Same Go application in Docker]
+    end
+
+    Controller -->|poll metrics| Agent1
+    Controller -->|probe /health| App1
+    Controller -->|Wake-on-LAN packet| NIC2
+    Controller -->|poll metrics after boot| Agent2
+    Controller -->|probe /health after boot| App2
+    Proxy -->|normal traffic| App1
+    Proxy -->|after activation| App2
 ```
 
-The Pi is the fixed entry point for clients and hosts the controller, dashboard API, and reverse proxy. Both laptops run the same stateless HTTP application in Docker. The primary runs a lightweight metrics agent. The Pi also probes the app directly so it can detect a failed laptop when its agent stops responding.
+The Pi provides separate entry points for the application traffic and the operator dashboard. HAProxy forwards application requests to healthy laptops. The Go controller polls both laptop agents and application health endpoints, makes scaling decisions, sends WoL, updates HAProxy, and writes events to SQLite. Next.js renders the dashboard, handles operator interaction, and calls the Go API. It does not make independent scaling decisions.
 
-Use wired Ethernet and stable LAN addresses or DHCP reservations. The Pi and network switch/router must remain powered. The Pi is a single point of failure; making the controller highly available is outside the first build.
+Next.js runs as a Node.js service on the Pi, so its server features remain available. Keep the Go control API reachable only from the Pi or trusted LAN; Next.js server-side handlers can forward authorized operator requests. If the dashboard process fails, the Go controller and HAProxy continue handling monitoring and application traffic.
+
+Use wired Ethernet and stable LAN addresses or DHCP reservations. The Pi and network switch/router must remain powered. The Pi is a single point of failure in this prototype; making the controller highly available is outside the first build.
 
 ## Activation sequence
 
@@ -65,7 +90,8 @@ If the primary fails, the proxy must stop routing to it as soon as failure is co
 
 | Condition | Action |
 | --- | --- |
-| Primary healthy and CPU below 80% | Keep standby off; route to primary |
+| Primary healthy and CPU below 80% with low predicted risk | Keep standby off; route to primary |
+| Model predicts overload within the measured boot window | Wake standby early; add it only after health passes |
 | Primary CPU at or above 80% for 60 seconds | Wake standby once; add it after health passes |
 | Primary app health fails for 3 consecutive probes | Remove primary from proxy, wake standby, and route to standby after health passes |
 | Standby boot or health check exceeds 3 minutes | Keep it out of the proxy; record failure and alert |
@@ -78,7 +104,7 @@ Use explicit states: `PRIMARY_ONLY`, `STARTING_STANDBY`, `BOTH_ACTIVE`, `FAILOVE
 ```mermaid
 stateDiagram-v2
     [*] --> PRIMARY_ONLY
-    PRIMARY_ONLY --> STARTING_STANDBY: load or failure
+    PRIMARY_ONLY --> STARTING_STANDBY: predicted load, sustained load, or failure
     STARTING_STANDBY --> BOTH_ACTIVE: standby healthy and primary healthy
     STARTING_STANDBY --> FAILOVER: standby healthy and primary failed
     STARTING_STANDBY --> ACTIVATION_FAILED: timeout
@@ -88,43 +114,98 @@ stateDiagram-v2
     FAILOVER --> PRIMARY_ONLY: primary restored and manual reset
 ```
 
+## AI-assisted predictive scaling
+
+A small model on the Raspberry Pi can watch recent trends and wake Laptop 2 **before** the primary reaches the reactive threshold. This matters because WoL, boot, and application startup take time. The model augments the fixed load and failure rules; it does not control HAProxy directly.
+
+### Model and inputs
+
+Use a tiny **logistic regression classifier implemented in Go**. It runs inside the Pi controller and stores a small versioned weight file. It predicts the risk that the primary will become overloaded within a future window. Start with a prediction horizon based on the measured WoL-to-healthy boot time plus a safety margin; for example, a 90-second boot suggests a roughly two-minute horizon.
+
+Build one feature vector from the most recent five minutes of samples:
+
+| Feature | What it captures |
+| --- | --- |
+| Average CPU and CPU slope | Current pressure and how quickly it is rising |
+| Request rate and request-rate slope | Incoming demand, including a traffic ramp |
+| p95 request latency and its slope | User-visible slowdown |
+| RAM utilization | Capacity pressure |
+| Recent error rate | Application stress or failure |
+
+The output is a risk score from 0 to 1 plus a model version and timestamp. The controller can display the score in the dashboard. It should treat missing or stale inputs as **prediction unavailable**, rather than silently turning them into zeros.
+
+### Prediction to action
+
+```mermaid
+flowchart LR
+    Samples[Recent metrics and request data] --> Features[Rolling trend features]
+    Features --> Model[Tiny Go model on Pi]
+    Model --> Risk[Predicted overload risk]
+    Risk --> Gate{Risk above threshold for several checks?}
+    Gate -->|Yes; standby is off| Controller[Go controller sends WoL]
+    Gate -->|No| Observe[Continue monitoring]
+    Controller --> Health[Wait for standby /health]
+    Health -->|Healthy| Proxy[Enable standby in HAProxy]
+    Health -->|Timeout| Alert[Record failure and alert]
+```
+
+For the first experiment, a risk score of at least 0.8 on three consecutive evaluations can start the standby. This value must be tuned against measured false alarms and missed overloads. Once activation starts, the normal state machine prevents duplicate WoL packets. The standby joins traffic only after its health check succeeds.
+
+The deterministic rules remain active at all times: three failed primary health checks trigger failover, and sustained CPU above 80% triggers reactive activation. If the model is unavailable, has too little training data, or sees stale metrics, the system continues with those rules. The model is allowed to pre-wake the standby; it does not automatically power a server down in the first version.
+
+### Training and evaluation
+
+Collect timestamped traces from repeatable **steady**, **gradual ramp**, and **sudden burst** workloads. For the first version, label a sample positive when the fixed CPU overload rule will fire within the selected prediction horizon. Later experiments can also label a configurable latency target. Keep whole workload runs separate between training and evaluation so nearby samples do not leak into both sets. Train the small model with Go on a development laptop, then deploy only the learned weights to the Pi for local inference. Retraining can be done after more traces are collected; the currently deployed model version must be recorded with every prediction-driven event.
+
+Compare the predictive policy against the fixed-threshold policy on separate demo runs. Report prediction lead time, missed overloads, unnecessary wake-ups, activation time, request errors, and the Pi CPU/RAM used by inference. A useful model wakes the standby early enough to reduce degraded service without repeatedly waking it during harmless spikes. Related research: [Predictive Auto-scaling with OpenStack Monasca](https://arxiv.org/abs/2111.02133) studies forecasts when server startup takes time.
+
+### Later: AI-guided scale down
+
+After predictive scale up is reliable, the same trend score can help decide when Laptop 2 is no longer needed. Require low predicted overload risk for a longer window, low measured load, a healthy primary, and a cool-down period. The Go controller should first drain Laptop 2 from HAProxy, wait for in-flight requests to finish, and only then suspend it into a WoL-compatible state. If the primary becomes unhealthy during the drain, cancel the scale down. Keep a manual override. This is an extension after the first physical activation demo, because premature scale down could cause repeated wake/suspend cycles.
+
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
-| Pi controller | Poll metrics and health, evaluate policy, send WoL, manage states, store events |
+| Pi controller | Poll metrics and health, evaluate rules and model score, send WoL, manage states, store events |
+| Pi prediction model | Forecast overload risk from recent trends and report its model version |
 | Reverse proxy on Pi | Give clients one address; route only to healthy, enabled app instances |
-| Primary metrics agent | Expose CPU, memory, disk, network, temperature when available, and uptime |
+| Laptop metrics agents | Expose CPU, memory, disk, network, temperature when available, and uptime |
 | Application on both laptops | Serve the same stateless HTTP endpoint and `GET /health` |
-| Dashboard | Show state, recent metrics, activation timeline, reasons, and failures |
+| Next.js dashboard | Show state, recent metrics, activation timeline, reasons, and failures |
 | SQLite database | Keep timestamped measurements and state changes across controller restarts |
 
-The dashboard can poll the Pi API every few seconds. SQLite is sufficient for this prototype. A separate database server and message broker would add setup work without improving the physical activation path.
+The Next.js dashboard can poll its own server-side routes every few seconds; those routes call the private Go API. SQLite is sufficient for this prototype. A separate database server and message broker would add setup work without improving the physical activation path.
 
-## Suggested implementation stack
+## Selected technology stack
 
-- **Pi:** Raspberry Pi OS, Python controller, SQLite, and Nginx or HAProxy.
-- **Laptops:** Linux or another OS with confirmed WoL support, Docker Compose, and a small Python metrics agent on the primary.
-- **Application:** A tiny stateless HTTP service with `/health` and an endpoint that performs measurable work.
-- **Dashboard:** A simple web page served by the Pi API. React can be added after the complete activation path works.
-- **Alerts:** Dashboard events first; Telegram or another external channel is an extension.
-
-The Pi controller owns the policy and state machine. A second backend should not independently decide when to activate the standby.
-
-### Technology options and trade-offs
-
-The original stack choices are all viable. For a first prototype, the simplest path is a Python controller/API on the Pi, SQLite for events, HAProxy for routing, Docker Compose on each laptop, and a basic dashboard. This keeps the physical wake and routing path small enough to finish and demonstrate.
-
-| Area | First version | Alternative when needed |
+| Layer | Choice | Purpose and placement |
 | --- | --- | --- |
-| Edge controller and metrics | Python | Go for a compact compiled service |
-| Backend API | Python in the same Pi service | Node.js with TypeScript or Java with Spring Boot |
-| Proxy | HAProxy | Nginx with a managed configuration update |
-| Database | SQLite | PostgreSQL for a separate backend or longer retention |
-| Frontend | Simple dashboard page | React with Recharts or Chart.js |
-| External alerts | Dashboard event feed | Email, Telegram, Discord, or browser notifications |
+| Edge hardware and OS | Raspberry Pi with 64-bit Raspberry Pi OS; two laptops on wired Ethernet | Pi stays on; Laptop 1 serves normally; Laptop 2 is the WoL standby |
+| Controller and backend API | Go with the standard `net/http` package | One Pi service owns polling, thresholds, health checks, state transitions, WoL, alerts, and operator API |
+| Predictive model | Tiny Go logistic regression classifier with a versioned weight file | Runs on the Pi and estimates overload risk before standby boot time |
+| Laptop metrics agents | Go with `github.com/shirou/gopsutil/v4` for OS metrics | Agent runs on each laptop and reports CPU, memory, disk, network, temperature when available, and uptime |
+| Demo application | Go HTTP service | Same stateless application image on both laptops; exposes `GET /health` and identifies the serving laptop |
+| Frontend | Next.js App Router, React, and TypeScript | Operator dashboard and controls; runs as a Node.js service on the Pi |
+| Styling and charts | Tailwind CSS and Recharts | Dashboard layout, status views, CPU/RAM/network charts, and event timeline |
+| Frontend to backend connection | Next.js server components and route handlers calling the Go API | Next.js renders data and forwards authorized operator actions; Go remains the only scaling decision maker |
+| Live updates | Dashboard polling about every 5 seconds | Refreshes current state, metrics, health, and events; server-sent events can be added later |
+| Database | SQLite through Go `database/sql` and `modernc.org/sqlite` (pure Go driver) | Stores timestamped metrics, states, activation reasons, alerts, and errors on the Pi |
+| Load balancer | HAProxy with health checks and runtime control | Pi routes application traffic only to healthy, enabled laptops |
+| Wake and network | Wake-on-LAN magic packet from Go over wired LAN | Powers or resumes Laptop 2 using its MAC address |
+| Application deployment | Docker and Docker Compose | Runs the same Go application on both laptops and restarts it after boot |
+| Service startup | systemd | Starts the Pi controller, Next.js dashboard, and laptop metrics agents automatically |
+| Operator access | Authenticated dashboard actions and a Go API restricted to the Pi or trusted LAN | Prevents arbitrary wake, retry, reset, and proxy changes |
+| Alerts and logs | Dashboard event feed and structured Go logs; one external channel later | Makes decisions, failures, and recovery visible for the demonstration |
 
-If Java/Spring Boot or Node.js/TypeScript is preferred for coursework, it can serve the API and dashboard data, while a small Pi process still handles WoL and proxy changes. Keep one component responsible for the scaling decision so two services cannot issue conflicting commands.
+### Runtime boundaries
+
+- **Go controller:** owns the scaling state machine and writes SQLite. Next.js must never send WoL packets or edit HAProxy directly.
+- **Next.js:** owns the dashboard experience and operator access. Its server-side code calls the Go API; browser clients do not need direct access to the private Go API.
+- **HAProxy:** owns application traffic routing. The dashboard runs as a separate Pi service, so a dashboard outage does not stop the Go controller or application proxy.
+- **Laptop services:** each laptop runs the Go app and metrics agent after boot. Only the standby app is added to HAProxy after it passes `/health`.
+
+Next.js is deployed as a Node.js server on the Pi, preserving App Router server features. Go is used for the hardware facing control path and agents. The existing scaffold remains as it was; we will discuss its final structure and any Git revert before implementing components.
 
 ## Hardware checks before coding
 
@@ -142,27 +223,29 @@ Minimum controller API:
 
 ```http
 GET  /api/status
+GET  /api/predictions
 GET  /api/metrics
 GET  /api/events
 POST /api/standby/activate
 POST /api/standby/reset
 ```
 
-Protect manual actions so only the operator can use them on the LAN. Do not expose the control API or metrics agent directly to the internet. Show each server's reachability, health, CPU and memory, active proxy targets, state, and time ordered event log.
+Protect manual actions with operator authentication in Next.js and authorization in the Go API. Do not expose the control API or metrics agent directly to the internet. Show each server's reachability, health, CPU and memory, active proxy targets, state, and time ordered event log.
 
 ## Build order
 
 1. **Hardware proof:** Wake the standby from the Pi and start its app automatically on boot.
 2. **Traffic path:** Put the Pi proxy in front of the primary app; add the standby manually after `/health` succeeds.
 3. **Controller:** Add polling, sustained load and failure triggers, activation states, timeout, and event log.
-4. **Visibility:** Add the dashboard and useful alerts.
-5. **Demo polish:** Generate repeatable load, show before and after metrics, and document recovery.
+4. **Prediction:** Collect workload traces, train the small Go model, and compare its decisions with the fixed thresholds.
+5. **Visibility:** Add the dashboard and useful alerts.
+6. **Demo polish:** Generate repeatable load, show before and after metrics, and document recovery.
 
 ## Demonstration and success criteria
 
 Start with the primary serving requests and the standby in its tested low power state. Generate enough application load to exceed the threshold for 60 seconds. Show the Pi recording the trigger, sending WoL, waiting for the standby to boot, checking `/health`, and routing new requests to both laptops. Then simulate primary failure and show the proxy stop using it while the standby continues serving requests.
 
-The activation path should need no manual step, and the dashboard should record timestamps and reasons for every transition. Measure **detection time**, **WoL to health time**, **total activation time**, and **request failures during failover**. Expect a boot delay; support any claim of uninterrupted service with measurements.
+The activation path should need no manual step, and the dashboard should record timestamps and reasons for every transition. Measure **detection time**, **WoL to health time**, **total activation time**, and **request failures during failover**. Expect a boot delay; support any claim of uninterrupted service with measurements. For the AI run, also compare prediction lead time, false wake-ups, missed overloads, and request failures with the fixed-threshold run.
 
 ## Detailed monitoring design
 
@@ -240,6 +323,7 @@ Laptop 1                         Laptop 2
 - Docker                         - Docker
 - Application container          - Same application image
 - Metrics agent                  - App starts on boot
+- Metrics agent starts on boot
 - /health endpoint               - /health endpoint
 ```
 
@@ -270,6 +354,7 @@ The Pi API connects the controller, dashboard, and manual operator controls. The
 
 ```http
 GET  /api/status
+GET  /api/predictions
 GET  /api/servers
 GET  /api/servers/:id
 GET  /api/servers/:id/metrics
@@ -298,9 +383,9 @@ Example status response:
 
 ## Dashboard and alert details
 
-The dashboard should answer three questions quickly: which laptops serve traffic, why the state changed, and whether availability or performance improved.
+The Next.js dashboard should answer four questions quickly: which laptops serve traffic, why the state changed, what overload risk the model predicts, and whether availability or performance improved.
 
-Show current server status, CPU/RAM/network values, historical charts, active and standby servers, application health, request latency, error counts, uptime, and a time ordered event history. Mark a measurement as stale when its last sample is old. Operator controls can provide manual activate, retry, and reset.
+Use Tailwind CSS for the interface and Recharts for historical charts. Show current server status, predicted overload risk and model version, CPU/RAM/network values, historical charts, active and standby servers, application health, request latency, error counts, uptime, and a time ordered event history. Mark a measurement as stale when its last sample is old. Operator controls can provide manual activate, retry, and reset.
 
 ```text
 SMART SERVER MONITOR                 State: BOTH_ACTIVE
@@ -308,8 +393,9 @@ SMART SERVER MONITOR                 State: BOTH_ACTIVE
 Laptop 1  ACTIVE  HEALTHY  CPU 54%   Latency p95 120 ms
 Laptop 2  ACTIVE  HEALTHY  CPU 41%   Latency p95 110 ms
 
-09:41:00  High CPU persisted for 60 seconds
-09:41:01  Wake-on-LAN sent to Laptop 2
+09:40:30  AI forecast: 0.82 overload risk within 2 minutes
+09:40:45  Wake-on-LAN sent early to Laptop 2
+09:41:00  Fixed CPU rule fires; activation already in progress
 09:42:20  Laptop 2 health check passed
 09:42:21  Laptop 2 added to proxy
 ```
@@ -321,6 +407,8 @@ Alert examples:
 | WARNING | Primary CPU exceeded 80% |
 | CRITICAL | Primary app failed three health checks; failover started |
 | INFO | WoL packet sent to standby |
+| INFO | Model predicted overload; early wake triggered |
+| WARNING | Prediction unavailable; fixed rules remain active |
 | SUCCESS | Standby passed health check and joined the proxy |
 | ERROR | Standby did not become healthy before timeout |
 
@@ -336,6 +424,7 @@ The dashboard event feed is the first notification channel. Email, Telegram, Dis
 | Standby boots but app does not | Keep it out of proxy and record health failure |
 | Standby fails while both are active | Remove standby; continue on healthy primary |
 | Pi controller restarts | Recheck both apps and reconcile proxy targets with actual health |
+| Model unavailable or input metrics stale | Continue fixed-threshold and failure rules; show prediction unavailable |
 | Pi or network switch fails | Service entry point is unavailable; state as prototype limitation |
 
 Persist state transitions, but do not blindly trust saved state after a restart. The Pi should probe actual health and inspect proxy targets before resuming decisions.
@@ -348,6 +437,7 @@ Persist state transitions, but do not blindly trust saved state after a restart.
 4. **Warm failure test:** With both laptops active, stop the primary app. After three failed probes, show the proxy stop routing to it and the state change to `FAILOVER`.
 5. **Cold failure test:** Reset to primary only, then stop the primary. Measure failed requests while the standby boots. This demonstrates the limit of an off or sleeping standby.
 6. **Failed activation test:** Prevent standby startup or health from succeeding and show timeout, `ACTIVATION_FAILED`, and an error alert.
+7. **Predictive comparison:** Repeat a gradual traffic ramp with model prediction enabled and compare early wake time, request errors, and unnecessary wake-ups against the fixed-threshold run.
 
 Record detection time, WoL to health time, total activation time, request failures during cold and warm failover, and CPU/latency before and after activation. The demo succeeds when the Pi completes the activation path without manual steps, the proxy routes only to healthy servers, and the dashboard gives an accurate timeline and reason for every result.
 
@@ -355,6 +445,6 @@ Record detection time, WoL to health time, total activation time, request failur
 
 - Add latency or error rate to the trigger policy.
 - Send one external notification for activation and failure.
-- Add automatic scale down with a long cool down period and active request checks.
+- Add AI-guided scale down with a long cool down period, active request checks, and standby draining.
 - Export metrics to Prometheus and build a richer dashboard.
 - Secure remote management through a VPN.

@@ -1,0 +1,17 @@
+# Example only. Copy to config/local.yaml and set your own LAN addresses.
+network:
+  primary_host: "192.168.1.11"
+  standby_host: "192.168.1.12"
+  standby_mac: "00:11:22:33:44:55"
+  app_port: 8000
+  agent_port: 8001
+
+controller:
+  poll_interval_seconds: 5
+  high_cpu_percent: 80
+  high_cpu_duration_seconds: 60
+  health_failure_count: 3
+  standby_start_timeout_seconds: 180
+
+storage:
+  sqlite_path: "data/monitor.sqlite3"
