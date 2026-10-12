@@ -24,6 +24,7 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `internal/proxy/` | Raspberry Pi | HAProxy target management |
 | `internal/store/` | Raspberry Pi | SQLite metrics; event storage planned |
 | `web/` | Raspberry Pi | Next.js status dashboard |
+| `start-backend.sh` | Development laptop | Build and start all three Go services together |
 | `config/example.yaml` | Raspberry Pi | Example topology and policy values |
 | `deploy/` | Pi and laptops | HAProxy, Docker, and systemd setup |
 
@@ -31,7 +32,15 @@ The Go agent can read live Linux laptop metrics. The Go controller polls one age
 
 ## Run the laptop prototype
 
-You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's SQLite driver. Run each long-lived service in a **separate terminal** from the repository root. Leave those terminals open while checking the API.
+You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's SQLite driver. From the repository root, start the agent, demo app, and controller with one command:
+
+```sh
+./start-backend.sh
+```
+
+Leave that terminal open. Ctrl+C stops all three services. The script builds the Go binaries into ignored `bin/` files before starting them. Stop any older copies of these services first, or their ports will already be in use.
+
+For individual debugging, run each service in its own terminal:
 
 | Terminal | Command | Default address |
 | --- | --- | --- |
@@ -39,7 +48,7 @@ You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's
 | 2: demo application | `go run ./cmd/demoapp` | `127.0.0.1:8000` |
 | 3: controller | `go run ./cmd/controller` | `127.0.0.1:8080` |
 
-Start the agent and app before the controller. Wait about five seconds for its first checks. In a **fourth terminal**, run:
+Wait about five seconds for the first controller checks. In another terminal, run:
 
 ```sh
 curl http://127.0.0.1:8081/metrics
@@ -50,12 +59,12 @@ curl 'http://127.0.0.1:8080/api/traffic?limit=10'
 curl 'http://127.0.0.1:8080/api/events?limit=10'
 ```
 
-The status response should contain `"metrics_available":true` and `"app_health":{"status":"healthy",...}`. `"state":"UNCONFIGURED"` and `"hardware_ready":false` are expected until the Pi and wake/routing hardware are connected. Sample times are UTC; network byte values are cumulative counters. `/api/metrics` returns newest samples first, and `/api/metrics/latest` returns the newest one. The dashboard also shows metrics availability and app health: run `npm ci` once in `web/`, then `npm run dev` there and open `http://127.0.0.1:3000`.
+The status response should contain `"metrics_available":true` and `"app_health":{"status":"healthy",...}`. `"state":"UNCONFIGURED"` and `"hardware_ready":false` are expected until the Pi and wake/routing hardware are connected. Sample times are UTC; network byte values are cumulative counters. `/api/metrics` returns newest samples first, and `/api/metrics/latest` returns the newest one. The dashboard shows current readings, recent charts, health, and events: run `npm ci` once in `web/`, then `npm run dev` there and open `http://127.0.0.1:3000`.
 
 `/api/traffic` records app request counts, HTTP 4xx/5xx counts, request rate, error percentage, and average response time. The first sample has no rates because it needs a previous reading. Generate requests after the controller has run for five seconds, then read `/api/traffic` again. The demo app's `/health` and `/stats` probes are excluded from traffic counts. `/api/events` lists changes in app health, metrics availability, and traffic-stats availability; it is stored in the same SQLite file. To exercise traffic, run this in the fourth terminal:
 
 ```sh
-for i in {1..20}; do curl -s 'http://127.0.0.1:8000/workload?duration_ms=500' >/dev/null; done
+for i in {1..20}; do curl -fsS 'http://127.0.0.1:8000/workload?duration_ms=500' >/dev/null || break; printf 'request %s/20 complete\n' "$i"; done
 curl -i 'http://127.0.0.1:8000/workload?duration_ms=0'
 curl http://127.0.0.1:8000/stats
 curl 'http://127.0.0.1:8080/api/traffic?limit=5'
@@ -64,7 +73,7 @@ curl 'http://127.0.0.1:8080/api/events?limit=10'
 
 The invalid `duration_ms=0` request returns HTTP 400 and increments the app error count. Requests per second and average latency use differences between consecutive five-second snapshots, so wait for the next controller poll if the newest sample still shows an earlier interval.
 
-Stop a service with Ctrl+C in its terminal. Restart the controller after changing its code. The SQLite file defaults to `data/monitor.sqlite3` and is ignored by Git; saved samples survive a controller restart. If `curl` says “Couldn't connect to server,” check that the corresponding service is still running in its own terminal. If the app is stopped, `app_health.status` becomes `unhealthy` while metrics can remain available; if the agent is stopped, `metrics_available` becomes false while the app can remain healthy. Historical samples stay in the database in both cases.
+Restart `./start-backend.sh` after changing Go code. The SQLite file defaults to `data/monitor.sqlite3` and is ignored by Git; saved samples survive a controller restart. If `curl` says “Couldn't connect to server,” check that the startup terminal is still running. If the app is stopped separately, `app_health.status` becomes `unhealthy` while metrics can remain available; if the agent is stopped separately, `metrics_available` becomes false while the app can remain healthy. Historical samples stay in the database in both cases.
 
 For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind addresses on the laptops, then set `AGENT_URL` and `APP_URL` on the controller to those hosts' URLs. `CONTROLLER_ADDR` changes the controller bind address; `SQLITE_PATH` changes the database path; `METRICS_DISK_PATH` changes the measured disk (default `/`). `config/example.yaml` records planned network values but is not loaded by the running services yet. Do not expose these prototype endpoints to the public internet.
 
@@ -75,7 +84,7 @@ For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind add
 | Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest`, `GET /api/traffic`, `GET /api/events` | Polls one agent, app health, and app stats independently; stores samples and events |
 | Go agent | `GET /health`, `GET /identity`, `GET /metrics` | Reads CPU, memory, disk, network counters, uptime, and optional temperature |
 | Go demo app | `GET /health`, `GET /`, `GET /workload`, `GET /stats` | Stateless app with bounded CPU work and cumulative request counters |
-| Next.js dashboard | `GET /` | Reads the controller API on the server; browser does not need the private Go address |
+| Next.js dashboard | `GET /` | Reads the private Go API on the server and refreshes status, trends, and events every five seconds |
 
 The controller will later own Wake-on-LAN, scaling decisions, events, and HAProxy changes. Next.js is only the frontend. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.
 
