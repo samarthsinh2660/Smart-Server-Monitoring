@@ -54,7 +54,7 @@ The Pi provides separate entry points for the application traffic and the operat
 
 Next.js runs as a Node.js service on the Pi, so its server features remain available. Keep the Go control API reachable only from the Pi or trusted LAN; Next.js server-side handlers can forward authorized operator requests. If the dashboard process fails, the Go controller and HAProxy continue handling monitoring and application traffic.
 
-Use wired Ethernet and stable LAN addresses or DHCP reservations. The Pi and network switch/router must remain powered. The Pi is a single point of failure in this prototype; making the controller highly available is outside the first build.
+Use stable LAN addresses or DHCP reservations. The current development laptop uses Wi-Fi and reports magic-packet Wake on Wireless LAN support; an actual wake from sleep still needs a second-device trial. The final demo can use Wi-Fi if that trial is reliable, or Ethernet if the chosen hardware needs it. The Pi and network equipment must remain powered. The Pi is a single point of failure in this prototype; making the controller highly available is outside the first build.
 
 ## Activation sequence
 
@@ -181,7 +181,7 @@ The Next.js dashboard can poll its own server-side routes every few seconds; tho
 
 | Layer | Choice | Purpose and placement |
 | --- | --- | --- |
-| Edge hardware and OS | Raspberry Pi with 64-bit Raspberry Pi OS; two laptops on wired Ethernet | Pi stays on; Laptop 1 serves normally; Laptop 2 is the WoL standby |
+| Edge hardware and OS | Raspberry Pi with 64-bit Raspberry Pi OS; two laptops on a validated local network | Pi stays on; Laptop 1 serves normally; Laptop 2 is the wake-capable standby |
 | Controller and backend API | Go with the standard `net/http` package | One Pi service owns polling, thresholds, health checks, state transitions, WoL, alerts, and operator API |
 | Predictive model | Tiny Go logistic regression classifier with a versioned weight file | Runs on the Pi and estimates overload risk before standby boot time |
 | Laptop metrics agents | Go with `github.com/shirou/gopsutil/v4` for OS metrics | Agent runs on each laptop and reports CPU, memory, disk, network, temperature when available, and uptime |
@@ -192,7 +192,7 @@ The Next.js dashboard can poll its own server-side routes every few seconds; tho
 | Live updates | Dashboard polling about every 5 seconds | Refreshes current state, metrics, health, and events; server-sent events can be added later |
 | Database | SQLite through Go `database/sql` and `modernc.org/sqlite` (pure Go driver) | Stores timestamped metrics, states, activation reasons, alerts, and errors on the Pi |
 | Load balancer | HAProxy with health checks and runtime control | Pi routes application traffic only to healthy, enabled laptops |
-| Wake and network | Wake-on-LAN magic packet from Go over wired LAN | Powers or resumes Laptop 2 using its MAC address |
+| Wake and network | Go sends a magic packet over the local network; Wi-Fi requires working WoWLAN | Resumes Laptop 2 from a measured supported state using its adapter MAC address |
 | Application deployment | Docker and Docker Compose | Runs the same Go application on both laptops and restarts it after boot |
 | Service startup | systemd | Starts the Pi controller, Next.js dashboard, and laptop metrics agents automatically |
 | Operator access | Authenticated dashboard actions and a Go API restricted to the Pi or trusted LAN | Prevents arbitrary wake, retry, reset, and proxy changes |
@@ -207,10 +207,10 @@ The Next.js dashboard can poll its own server-side routes every few seconds; tho
 
 Next.js is deployed as a Node.js server on the Pi, preserving App Router server features. Go is used for the hardware facing control path and agents. The existing scaffold remains as it was; we will discuss its final structure and any Git revert before implementing components.
 
-## Hardware checks before coding
+## Hardware checks before physical integration
 
 1. Confirm the standby supports WoL from the intended power state and enable it in firmware and the operating system. Some laptops cannot wake from full shutdown or on battery power.
-2. Connect the standby through Ethernet, verify its MAC address, and test waking it from the Pi.
+2. Connect the standby through the selected network adapter, verify its MAC address, and test waking it from the Pi. The current laptop's Wi-Fi driver reports magic-packet WoWLAN capability, but the wake trial is pending.
 3. Verify that the standby boots into the application without a login. Measure WoL to healthy HTTP response time.
 4. Assign stable LAN addresses and confirm clients can reach the Pi proxy.
 5. Use a demo application whose requests are safe to run on either laptop. An application with sessions or local writes needs shared state before load balancing.
@@ -292,11 +292,11 @@ These levels are for the dashboard. The actual scale trigger is CPU at or above 
 
 ## Wake-on-LAN and boot readiness
 
-The Pi sends a WoL magic packet to the standby Ethernet adapter using its MAC address. The packet only wakes the laptop. The operating system and Docker must then start, followed by the application. The Pi must wait for the application to become healthy before changing the proxy.
+The Pi sends a magic packet to the standby's tested network adapter using its MAC address. On Wi-Fi this requires WoWLAN support and a successful wake trial from sleep. The packet only wakes the laptop. The operating system and Docker must then start, followed by the application. The Pi must wait for the application to become healthy before changing the proxy.
 
 ```mermaid
 flowchart LR
-    Pi[Raspberry Pi] -->|WoL magic packet| NIC[Standby Ethernet adapter]
+    Pi[Raspberry Pi] -->|Magic packet| NIC[Standby wake-capable network adapter]
     NIC --> Boot[Wake and boot]
     Boot --> OS[Operating system ready]
     OS --> Docker[App container starts]
@@ -307,7 +307,7 @@ flowchart LR
 Hardware checks to perform before coding the automation:
 
 1. Verify that the standby can wake from the desired power state. Some laptops support wake from sleep but not full shutdown, and some require AC power.
-2. Enable WoL in firmware and the operating system, use Ethernet, and record the standby MAC address.
+2. Enable the adapter's supported wake mode in firmware and the operating system, and record the MAC address. For Wi-Fi, verify WoWLAN from sleep; use Ethernet if the wireless wake path is unreliable.
 3. Send a test packet from the Pi several times and check that the result is repeatable.
 4. Make the application start without a user login, using Docker restart policy or a systemd managed Compose service.
 5. Measure the interval from WoL send to a successful health response. Use that measurement to set a realistic startup timeout.

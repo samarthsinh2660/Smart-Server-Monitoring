@@ -8,6 +8,9 @@ vendor/
 # Frontend build output
 web/node_modules/
 web/dist/
+web/.next/
+web/out/
+web/*.tsbuildinfo
 
 # Local settings and runtime data
 .env

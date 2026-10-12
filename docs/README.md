@@ -27,14 +27,18 @@ flowchart LR
 
 ## Phase 1 — Prove the physical setup
 
-- Connect the Pi and laptops to the same wired LAN and give them stable addresses.
-- Enable Wake-on-LAN on Laptop 2 and wake it from the Pi several times from the intended sleep or shutdown state.
+Use the [hardware proof and results sheet](phase-1-hardware.md) to record the actual devices and wake trials.
+
+- Connect the Pi and laptops to the same local network and give them stable addresses. The current laptop uses Wi-Fi; the final wake path must be validated before choosing Wi-Fi or Ethernet for the demo.
+- Enable the standby's supported magic-packet wake mode and wake it from the Pi several times from the intended sleep state. Test shutdown separately if the hardware claims to support it.
 - Record the standby MAC address, required power settings, wake success rate, and time from WoL to network reachability.
 - Identify the power state to use for the demo if full shutdown cannot be woken reliably.
 
 **Done when:** the Pi can wake the standby repeatedly and the network addresses stay stable across reboots.
 
 ## Phase 2 — Establish the software foundation
+
+The [repository README](../README.md) now records the local service entry points, ownership, and build commands. The Next.js dependencies are locked in `web/package-lock.json`. Hardware-dependent behavior remains in later phases.
 
 - Apply the agreed repository structure. Set up the Go module, Next.js TypeScript app, configuration example, and local development commands.
 - Define the interfaces between laptop agents, the Go controller API, the Next.js dashboard, and HAProxy. Give each service one owner for its responsibilities.
