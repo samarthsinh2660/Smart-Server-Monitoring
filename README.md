@@ -7,7 +7,7 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 - **Backend and device agents:** Go. The controller/API, laptop metrics agent, and demo application are planned in Go.
 - **Frontend:** Next.js with TypeScript. Node.js runs the Next.js dashboard; Go remains the only monitoring and scaling backend.
 - **Routing:** HAProxy on the Pi.
-- **Storage:** SQLite on the Pi for metrics and events.
+- **Storage:** SQLite for timestamped metrics; controller events are planned.
 - **Deployment:** Docker Compose for the laptop app; systemd for controller and agent services.
 - **Network control:** Magic-packet wake over the local network. The current laptop reports Wi-Fi WoWLAN capability; an actual wake trial is still pending.
 
@@ -27,7 +27,7 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `config/example.yaml` | Raspberry Pi | Example topology and policy values |
 | `deploy/` | Pi and laptops | HAProxy, Docker, and systemd setup |
 
-The first software foundation is in place. The Go services expose local status and identity endpoints; the Next.js dashboard reads the Go controller status. Hardware monitoring and scaling are still future phases.
+The Go agent can read live Linux laptop metrics. The Go controller polls one agent every five seconds and stores samples locally. Scaling and physical hardware integration remain future phases.
 
 ## Run locally
 
@@ -41,29 +41,40 @@ go run ./cmd/demoapp
 
 The controller listens on `127.0.0.1:8080`, agent on `127.0.0.1:8081`, and demo app on `127.0.0.1:8000`. Use `CONTROLLER_ADDR`, `AGENT_ADDR`, or `DEMOAPP_ADDR` to change a bind address. To start the dashboard, run `npm install` and `npm run dev` in `web/`; it opens at `http://127.0.0.1:3000`.
 
+For a laptop-only metrics trial, start the agent and controller in that order, then read:
+
+```sh
+curl http://127.0.0.1:8081/metrics
+curl http://127.0.0.1:8080/api/status
+curl 'http://127.0.0.1:8080/api/metrics?limit=10'
+```
+
+Set `AGENT_URL` on the controller to the agent's private LAN URL when running on separate machines. Set `SQLITE_PATH` to change the database path (default `data/monitor.sqlite3`) or `METRICS_DISK_PATH` on the agent to measure another mounted disk (default `/`). Recent samples remain in SQLite after controller restarts. When the agent is unreachable, the API sets `metrics_available` to false; old samples remain historical readings. The agent reads Linux `/proc`, so this implementation runs on Linux laptops and the Raspberry Pi.
+
 ## Current service boundaries
 
 | Service | Available endpoints | Responsibility |
 | --- | --- | --- |
-| Go controller | `GET /health`, `GET /api/status` | Private control API; reports `UNCONFIGURED` until hardware integration |
-| Go agent | `GET /health`, `GET /identity` | Laptop process; metrics arrive in Phase 4 |
+| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest` | Polls one agent and stores recent metrics; reports `UNCONFIGURED` until hardware integration |
+| Go agent | `GET /health`, `GET /identity`, `GET /metrics` | Reads CPU, memory, disk, network counters, uptime, and optional temperature |
 | Go demo app | `GET /health`, `GET /`, `GET /workload` | Stateless app that identifies the serving host and provides bounded CPU work |
 | Next.js dashboard | `GET /` | Reads the controller API on the server; browser does not need the private Go address |
 
-The controller will later own Wake-on-LAN, scaling decisions, SQLite, and HAProxy changes. Next.js is only the frontend. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.
+The controller will later own Wake-on-LAN, scaling decisions, events, and HAProxy changes. Next.js is only the frontend. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.
 
 ## Build targets
 
 These commands build the Go services separately. The Raspberry Pi target assumes a 64-bit Linux OS; the current laptop is Linux amd64.
 
 ```sh
-go build -o bin/controller ./cmd/controller
+CGO_ENABLED=1 go build -o bin/controller ./cmd/controller
 go build -o bin/agent ./cmd/agent
 go build -o bin/demoapp ./cmd/demoapp
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/pi/controller ./cmd/controller
 ```
 
 The dashboard's production build is `npm run build` inside `web/`. Keep the generated `web/package-lock.json` in version control so a later `npm ci` installs the same versions.
+
+The SQLite driver currently uses CGO. Build the controller natively on the Pi with a C compiler, or use an ARM64 cross compiler. The agent and demo app remain ordinary Go binaries.
 
 ## Application traffic path (in progress)
 

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"smartserver/internal/httpserver"
+	"smartserver/internal/metrics"
 )
 
 func main() {
@@ -27,6 +28,19 @@ func main() {
 		httpserver.WriteJSON(w, http.StatusOK, struct {
 			Hostname string `json:"hostname"`
 		}{Hostname: hostname})
+	})
+	diskPath := os.Getenv("METRICS_DISK_PATH")
+	if diskPath == "" {
+		diskPath = "/"
+	}
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		sample, err := metrics.Collect(r.Context(), diskPath)
+		if err != nil {
+			log.Printf("collect metrics: %v", err)
+			httpserver.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "metrics unavailable"})
+			return
+		}
+		httpserver.WriteJSON(w, http.StatusOK, sample)
 	})
 	if err := httpserver.Run(addr, mux); err != nil {
 		log.Fatal(err)

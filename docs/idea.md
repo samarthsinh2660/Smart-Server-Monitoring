@@ -184,13 +184,13 @@ The Next.js dashboard can poll its own server-side routes every few seconds; tho
 | Edge hardware and OS | Raspberry Pi with 64-bit Raspberry Pi OS; two laptops on a validated local network | Pi stays on; Laptop 1 serves normally; Laptop 2 is the wake-capable standby |
 | Controller and backend API | Go with the standard `net/http` package | One Pi service owns polling, thresholds, health checks, state transitions, WoL, alerts, and operator API |
 | Predictive model | Tiny Go logistic regression classifier with a versioned weight file | Runs on the Pi and estimates overload risk before standby boot time |
-| Laptop metrics agents | Go with `github.com/shirou/gopsutil/v4` for OS metrics | Agent runs on each laptop and reports CPU, memory, disk, network, temperature when available, and uptime |
+| Laptop metrics agents | Go with Linux `/proc` and `statfs` | Agent runs on each Linux laptop and reports CPU, memory, disk, network, temperature when available, and uptime |
 | Demo application | Go HTTP service | Same stateless application image on both laptops; exposes `GET /health` and identifies the serving laptop |
 | Frontend | Next.js App Router, React, and TypeScript | Operator dashboard and controls; runs as a Node.js service on the Pi |
 | Styling and charts | Tailwind CSS and Recharts | Dashboard layout, status views, CPU/RAM/network charts, and event timeline |
 | Frontend to backend connection | Next.js server components and route handlers calling the Go API | Next.js renders data and forwards authorized operator actions; Go remains the only scaling decision maker |
 | Live updates | Dashboard polling about every 5 seconds | Refreshes current state, metrics, health, and events; server-sent events can be added later |
-| Database | SQLite through Go `database/sql` and `modernc.org/sqlite` (pure Go driver) | Stores timestamped metrics, states, activation reasons, alerts, and errors on the Pi |
+| Database | SQLite through Go `database/sql` and `github.com/mattn/go-sqlite3` (CGO driver) | Stores timestamped metrics now; states, activation reasons, alerts, and errors later. Build the controller natively on the Pi |
 | Load balancer | HAProxy with health checks and runtime control | Pi routes application traffic only to healthy, enabled laptops |
 | Wake and network | Go sends a magic packet over the local network; Wi-Fi requires working WoWLAN | Resumes Laptop 2 from a measured supported state using its adapter MAC address |
 | Application deployment | Docker and Docker Compose | Runs the same Go application on both laptops and restarts it after boot |
