@@ -59,7 +59,7 @@ The demo app now has a bounded workload endpoint, a shared [laptop Compose setup
 
 ## Phase 4 — Monitor and retain evidence
 
-The current laptop prototype collects and persists metrics for one agent and checks one demo app separately. The remaining work in this phase includes two-laptop support, request and latency measurements, and event history.
+The current laptop prototype collects and persists metrics for one agent, checks one demo app, and stores request-rate, average-latency, and status-change history. The remaining work in this phase includes two-laptop support and proxy-level request and latency measurements.
 
 - Run a Go metrics agent on each laptop and collect CPU, RAM, disk, network, uptime, and temperature where supported.
 - Have the Pi poll agents and probe each app's `/health` separately. Collect request rate, latency, and error counts from the proxy or app.

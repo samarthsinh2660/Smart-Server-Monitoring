@@ -46,9 +46,23 @@ curl http://127.0.0.1:8081/metrics
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8080/api/status
 curl 'http://127.0.0.1:8080/api/metrics?limit=10'
+curl 'http://127.0.0.1:8080/api/traffic?limit=10'
+curl 'http://127.0.0.1:8080/api/events?limit=10'
 ```
 
 The status response should contain `"metrics_available":true` and `"app_health":{"status":"healthy",...}`. `"state":"UNCONFIGURED"` and `"hardware_ready":false` are expected until the Pi and wake/routing hardware are connected. Sample times are UTC; network byte values are cumulative counters. `/api/metrics` returns newest samples first, and `/api/metrics/latest` returns the newest one. The dashboard also shows metrics availability and app health: run `npm ci` once in `web/`, then `npm run dev` there and open `http://127.0.0.1:3000`.
+
+`/api/traffic` records app request counts, HTTP 4xx/5xx counts, request rate, error percentage, and average response time. The first sample has no rates because it needs a previous reading. Generate requests after the controller has run for five seconds, then read `/api/traffic` again. The demo app's `/health` and `/stats` probes are excluded from traffic counts. `/api/events` lists changes in app health, metrics availability, and traffic-stats availability; it is stored in the same SQLite file. To exercise traffic, run this in the fourth terminal:
+
+```sh
+for i in {1..20}; do curl -s 'http://127.0.0.1:8000/workload?duration_ms=500' >/dev/null; done
+curl -i 'http://127.0.0.1:8000/workload?duration_ms=0'
+curl http://127.0.0.1:8000/stats
+curl 'http://127.0.0.1:8080/api/traffic?limit=5'
+curl 'http://127.0.0.1:8080/api/events?limit=10'
+```
+
+The invalid `duration_ms=0` request returns HTTP 400 and increments the app error count. Requests per second and average latency use differences between consecutive five-second snapshots, so wait for the next controller poll if the newest sample still shows an earlier interval.
 
 Stop a service with Ctrl+C in its terminal. Restart the controller after changing its code. The SQLite file defaults to `data/monitor.sqlite3` and is ignored by Git; saved samples survive a controller restart. If `curl` says “Couldn't connect to server,” check that the corresponding service is still running in its own terminal. If the app is stopped, `app_health.status` becomes `unhealthy` while metrics can remain available; if the agent is stopped, `metrics_available` becomes false while the app can remain healthy. Historical samples stay in the database in both cases.
 
@@ -58,9 +72,9 @@ For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind add
 
 | Service | Available endpoints | Responsibility |
 | --- | --- | --- |
-| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest` | Polls one agent and the demo app independently; stores recent metrics; reports `UNCONFIGURED` until hardware integration |
+| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest`, `GET /api/traffic`, `GET /api/events` | Polls one agent, app health, and app stats independently; stores samples and events |
 | Go agent | `GET /health`, `GET /identity`, `GET /metrics` | Reads CPU, memory, disk, network counters, uptime, and optional temperature |
-| Go demo app | `GET /health`, `GET /`, `GET /workload` | Stateless app that identifies the serving host and provides bounded CPU work |
+| Go demo app | `GET /health`, `GET /`, `GET /workload`, `GET /stats` | Stateless app with bounded CPU work and cumulative request counters |
 | Next.js dashboard | `GET /` | Reads the controller API on the server; browser does not need the private Go address |
 
 The controller will later own Wake-on-LAN, scaling decisions, events, and HAProxy changes. Next.js is only the frontend. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.

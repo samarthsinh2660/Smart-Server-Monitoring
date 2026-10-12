@@ -35,7 +35,26 @@ func Open(path string) (*Metrics, error) {
 		network_tx_bytes INTEGER NOT NULL,
 		uptime_seconds INTEGER NOT NULL,
 		temperature_c REAL
-	); CREATE INDEX IF NOT EXISTS metric_samples_time ON metric_samples(sampled_at DESC);`); err != nil {
+	); CREATE INDEX IF NOT EXISTS metric_samples_time ON metric_samples(sampled_at DESC);
+	CREATE TABLE IF NOT EXISTS traffic_samples (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		hostname TEXT NOT NULL,
+		started_at TEXT NOT NULL,
+		sampled_at TEXT NOT NULL,
+		request_count INTEGER NOT NULL,
+		error_count INTEGER NOT NULL,
+		duration_sum_ms REAL NOT NULL,
+		request_rate_per_second REAL,
+		error_rate_percent REAL,
+		avg_latency_ms REAL
+	); CREATE INDEX IF NOT EXISTS traffic_samples_time ON traffic_samples(sampled_at DESC);
+	CREATE TABLE IF NOT EXISTS controller_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		occurred_at TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		status TEXT NOT NULL,
+		message TEXT NOT NULL
+	); CREATE INDEX IF NOT EXISTS controller_events_time ON controller_events(occurred_at DESC);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize metrics table: %w", err)
 	}

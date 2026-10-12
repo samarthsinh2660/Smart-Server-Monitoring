@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"smartserver/internal/httpserver"
+	"smartserver/internal/traffic"
 )
 
 func main() {
@@ -24,6 +25,10 @@ func main() {
 		}
 	}
 	mux := http.NewServeMux()
+	recorder := traffic.NewRecorder(name)
+	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, _ *http.Request) {
+		httpserver.WriteJSON(w, http.StatusOK, recorder.Snapshot())
+	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		httpserver.WriteJSON(w, http.StatusOK, struct {
 			Status string `json:"status"`
@@ -70,7 +75,7 @@ func main() {
 			Checksum   uint64 `json:"checksum"`
 		}{Server: name, DurationMS: durationMS, Checksum: checksum})
 	})
-	if err := httpserver.Run(addr, mux); err != nil {
+	if err := httpserver.Run(addr, recorder.Wrap(mux)); err != nil {
 		log.Fatal(err)
 	}
 }

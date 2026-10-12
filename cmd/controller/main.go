@@ -39,8 +39,12 @@ func main() {
 	defer db.Close()
 	poller := &controller.Poller{AgentURL: agentURL, Client: &http.Client{Timeout: 3 * time.Second}, Store: db, Interval: 5 * time.Second}
 	appProbe := &controller.HealthProbe{AppURL: appURL, Client: &http.Client{Timeout: 2 * time.Second}, Interval: 5 * time.Second}
+	trafficPoller := &controller.TrafficPoller{AppURL: appURL, Client: &http.Client{Timeout: 2 * time.Second}, Store: db, Interval: 5 * time.Second}
+	events := &controller.EventMonitor{Store: db, Metrics: poller, App: appProbe, Traffic: trafficPoller}
 	go poller.Run(context.Background())
 	go appProbe.Run(context.Background())
+	go trafficPoller.Run(context.Background())
+	go events.Run(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		httpserver.WriteJSON(w, http.StatusOK, struct {
@@ -49,6 +53,7 @@ func main() {
 	})
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, _ *http.Request) {
 		available, lastError, lastSample := poller.State()
+		trafficAvailable, _, _ := trafficPoller.State()
 		httpserver.WriteJSON(w, http.StatusOK, struct {
 			State            string               `json:"state"`
 			HardwareReady    bool                 `json:"hardware_ready"`
@@ -57,6 +62,7 @@ func main() {
 			MetricsError     string               `json:"metrics_error,omitempty"`
 			LastSampleAt     *time.Time           `json:"last_sample_at,omitempty"`
 			AppHealth        controller.AppHealth `json:"app_health"`
+			TrafficAvailable bool                 `json:"traffic_available"`
 		}{
 			State:            "UNCONFIGURED",
 			HardwareReady:    false,
@@ -65,17 +71,13 @@ func main() {
 			MetricsError:     lastError,
 			LastSampleAt:     timePointer(lastSample),
 			AppHealth:        appProbe.State(),
+			TrafficAvailable: trafficAvailable,
 		})
 	})
 	mux.HandleFunc("GET /api/metrics", func(w http.ResponseWriter, r *http.Request) {
-		limit := 60
-		if raw := r.URL.Query().Get("limit"); raw != "" {
-			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed < 1 || parsed > 1000 {
-				httpserver.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "limit must be 1 to 1000"})
-				return
-			}
-			limit = parsed
+		limit, ok := readLimit(w, r)
+		if !ok {
+			return
 		}
 		samples, err := db.Recent(r.Context(), limit)
 		if err != nil {
@@ -85,6 +87,33 @@ func main() {
 		}
 		available, _, _ := poller.State()
 		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"available": available, "samples": samples})
+	})
+	mux.HandleFunc("GET /api/traffic", func(w http.ResponseWriter, r *http.Request) {
+		limit, ok := readLimit(w, r)
+		if !ok {
+			return
+		}
+		samples, err := db.RecentTraffic(r.Context(), limit)
+		if err != nil {
+			log.Printf("read traffic: %v", err)
+			httpserver.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "read traffic failed"})
+			return
+		}
+		available, _, _ := trafficPoller.State()
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"available": available, "samples": samples})
+	})
+	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
+		limit, ok := readLimit(w, r)
+		if !ok {
+			return
+		}
+		items, err := db.RecentEvents(r.Context(), limit)
+		if err != nil {
+			log.Printf("read events: %v", err)
+			httpserver.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "read events failed"})
+			return
+		}
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"events": items})
 	})
 	mux.HandleFunc("GET /api/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
 		sample, err := db.Latest(r.Context())
@@ -110,4 +139,16 @@ func timePointer(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+func readLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 || limit > 1000 {
+			httpserver.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "limit must be 1 to 1000"})
+			return 0, false
+		}
+		return limit, true
+	}
+	return 60, true
 }
