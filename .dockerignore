@@ -1,0 +1,10 @@
+.git
+.agents
+.codex
+web
+docs
+data
+bin
+*.db
+*.sqlite
+*.sqlite3

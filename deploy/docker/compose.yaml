@@ -1,0 +1,11 @@
+services:
+  demoapp:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DEMOAPP_ADDR: ":8000"
+      SERVER_NAME: "${SERVER_NAME:-demo-laptop}"
+    ports:
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-8000}:8000"

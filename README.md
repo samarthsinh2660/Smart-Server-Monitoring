@@ -47,7 +47,7 @@ The controller listens on `127.0.0.1:8080`, agent on `127.0.0.1:8081`, and demo 
 | --- | --- | --- |
 | Go controller | `GET /health`, `GET /api/status` | Private control API; reports `UNCONFIGURED` until hardware integration |
 | Go agent | `GET /health`, `GET /identity` | Laptop process; metrics arrive in Phase 4 |
-| Go demo app | `GET /health`, `GET /` | Stateless app that identifies the serving host |
+| Go demo app | `GET /health`, `GET /`, `GET /workload` | Stateless app that identifies the serving host and provides bounded CPU work |
 | Next.js dashboard | `GET /` | Reads the controller API on the server; browser does not need the private Go address |
 
 The controller will later own Wake-on-LAN, scaling decisions, SQLite, and HAProxy changes. Next.js is only the frontend. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.
@@ -64,6 +64,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/pi/controller ./cmd/contro
 ```
 
 The dashboard's production build is `npm run build` inside `web/`. Keep the generated `web/package-lock.json` in version control so a later `npm ci` installs the same versions.
+
+## Application traffic path (in progress)
+
+The [laptop Compose file](deploy/docker/README.md) builds the same Go app image for both laptops. The [HAProxy template](deploy/haproxy/README.md) starts with only the primary enabled and checks each app's `/health`. The Pi and final laptop addresses are not available yet, so the proxy path remains to be exercised on the hardware.
 
 ## Build order
 

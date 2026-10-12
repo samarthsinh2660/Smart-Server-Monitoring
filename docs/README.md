@@ -48,6 +48,8 @@ The [repository README](../README.md) now records the local service entry points
 
 ## Phase 3 — Make the application traffic path work
 
+The demo app now has a bounded workload endpoint, a shared [laptop Compose setup](../deploy/docker/README.md), and an [HAProxy template](../deploy/haproxy/README.md). Device addresses and the measured traffic path are still pending.
+
 - Build one stateless Go demo app with `GET /health`, a workload endpoint, and a response that identifies which laptop served it.
 - Run the same app image on both laptops through Docker Compose; make the standby app start automatically after boot.
 - Configure HAProxy on the Pi as the stable client entry point. Begin with only Laptop 1 active; add Laptop 2 manually after a successful health check.
