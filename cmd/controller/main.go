@@ -24,6 +24,10 @@ func main() {
 	if agentURL == "" {
 		agentURL = "http://127.0.0.1:8081"
 	}
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		appURL = "http://127.0.0.1:8000"
+	}
 	dbPath := os.Getenv("SQLITE_PATH")
 	if dbPath == "" {
 		dbPath = "data/monitor.sqlite3"
@@ -34,7 +38,9 @@ func main() {
 	}
 	defer db.Close()
 	poller := &controller.Poller{AgentURL: agentURL, Client: &http.Client{Timeout: 3 * time.Second}, Store: db, Interval: 5 * time.Second}
+	appProbe := &controller.HealthProbe{AppURL: appURL, Client: &http.Client{Timeout: 2 * time.Second}, Interval: 5 * time.Second}
 	go poller.Run(context.Background())
+	go appProbe.Run(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		httpserver.WriteJSON(w, http.StatusOK, struct {
@@ -44,12 +50,13 @@ func main() {
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, _ *http.Request) {
 		available, lastError, lastSample := poller.State()
 		httpserver.WriteJSON(w, http.StatusOK, struct {
-			State            string     `json:"state"`
-			HardwareReady    bool       `json:"hardware_ready"`
-			Message          string     `json:"message"`
-			MetricsAvailable bool       `json:"metrics_available"`
-			MetricsError     string     `json:"metrics_error,omitempty"`
-			LastSampleAt     *time.Time `json:"last_sample_at,omitempty"`
+			State            string               `json:"state"`
+			HardwareReady    bool                 `json:"hardware_ready"`
+			Message          string               `json:"message"`
+			MetricsAvailable bool                 `json:"metrics_available"`
+			MetricsError     string               `json:"metrics_error,omitempty"`
+			LastSampleAt     *time.Time           `json:"last_sample_at,omitempty"`
+			AppHealth        controller.AppHealth `json:"app_health"`
 		}{
 			State:            "UNCONFIGURED",
 			HardwareReady:    false,
@@ -57,6 +64,7 @@ func main() {
 			MetricsAvailable: available,
 			MetricsError:     lastError,
 			LastSampleAt:     timePointer(lastSample),
+			AppHealth:        appProbe.State(),
 		})
 	})
 	mux.HandleFunc("GET /api/metrics", func(w http.ResponseWriter, r *http.Request) {

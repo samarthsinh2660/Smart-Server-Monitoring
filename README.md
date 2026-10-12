@@ -49,13 +49,13 @@ curl http://127.0.0.1:8080/api/status
 curl 'http://127.0.0.1:8080/api/metrics?limit=10'
 ```
 
-Set `AGENT_URL` on the controller to the agent's private LAN URL when running on separate machines. Set `SQLITE_PATH` to change the database path (default `data/monitor.sqlite3`) or `METRICS_DISK_PATH` on the agent to measure another mounted disk (default `/`). Recent samples remain in SQLite after controller restarts. When the agent is unreachable, the API sets `metrics_available` to false; old samples remain historical readings. The agent reads Linux `/proc`, so this implementation runs on Linux laptops and the Raspberry Pi.
+Start `go run ./cmd/demoapp` in a third terminal to see `app_health.status` become `healthy`; without it, the controller reports the app as `unhealthy` while laptop metrics can stay available. Set `AGENT_URL` and `APP_URL` on the controller to the services' private LAN URLs when running on separate machines. Set `SQLITE_PATH` to change the database path (default `data/monitor.sqlite3`) or `METRICS_DISK_PATH` on the agent to measure another mounted disk (default `/`). Recent samples remain in SQLite after controller restarts. When the agent is unreachable, the API sets `metrics_available` to false; old samples remain historical readings. The agent reads Linux `/proc`, so this implementation runs on Linux laptops and the Raspberry Pi.
 
 ## Current service boundaries
 
 | Service | Available endpoints | Responsibility |
 | --- | --- | --- |
-| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest` | Polls one agent and stores recent metrics; reports `UNCONFIGURED` until hardware integration |
+| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest` | Polls one agent and the demo app independently; stores recent metrics; reports `UNCONFIGURED` until hardware integration |
 | Go agent | `GET /health`, `GET /identity`, `GET /metrics` | Reads CPU, memory, disk, network counters, uptime, and optional temperature |
 | Go demo app | `GET /health`, `GET /`, `GET /workload` | Stateless app that identifies the serving host and provides bounded CPU work |
 | Next.js dashboard | `GET /` | Reads the controller API on the server; browser does not need the private Go address |

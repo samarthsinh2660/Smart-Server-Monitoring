@@ -4,6 +4,10 @@ type ControllerStatus = {
   state: string;
   hardware_ready: boolean;
   message: string;
+  metrics_available: boolean;
+  app_health: {
+    status: "healthy" | "unhealthy" | "unknown";
+  };
 };
 
 async function readControllerStatus(): Promise<ControllerStatus | null> {
@@ -24,7 +28,14 @@ async function readControllerStatus(): Promise<ControllerStatus | null> {
       !("hardware_ready" in data) ||
       typeof data.hardware_ready !== "boolean" ||
       !("message" in data) ||
-      typeof data.message !== "string"
+      typeof data.message !== "string" ||
+      !("metrics_available" in data) ||
+      typeof data.metrics_available !== "boolean" ||
+      !("app_health" in data) ||
+      typeof data.app_health !== "object" ||
+      data.app_health === null ||
+      !("status" in data.app_health) ||
+      !["healthy", "unhealthy", "unknown"].includes(String(data.app_health.status))
     ) {
       return null;
     }
@@ -79,12 +90,20 @@ export default async function Home() {
             <dt>Hardware</dt>
             <dd>{status?.hardware_ready ? "Ready" : "Not ready"}</dd>
           </div>
+          <div>
+            <dt>Laptop metrics</dt>
+            <dd>{status?.metrics_available ? "Available" : "Unavailable"}</dd>
+          </div>
+          <div>
+            <dt>Demo app</dt>
+            <dd>{status?.app_health.status ?? "unknown"}</dd>
+          </div>
         </dl>
         <p className="status-message">
           {status?.message ?? "The Go controller is not responding. Start it to see live status."}
         </p>
       </section>
-      <p className="footnote">Hardware activation and live metrics follow in later phases.</p>
+      <p className="footnote">Hardware activation and scaling follow in later phases.</p>
     </main>
   );
 }
