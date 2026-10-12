@@ -18,38 +18,41 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `cmd/controller/` | Raspberry Pi | Controller and HTTP API entry point |
 | `cmd/agent/` | Both laptops | Metrics agent entry point |
 | `cmd/demoapp/` | Both laptops | Stateless application entry point |
-| `internal/controller/` | Raspberry Pi | Decision state machine and orchestration |
+| `internal/controller/` | Raspberry Pi | Metrics polling and independent app health checks; later, scaling decisions |
 | `internal/metrics/` | Pi and laptops | Metrics collection and transport |
 | `internal/config/` | Pi and laptops | Configuration loading |
 | `internal/proxy/` | Raspberry Pi | HAProxy target management |
-| `internal/store/` | Raspberry Pi | SQLite events and metrics |
-| `web/` | Raspberry Pi | Planned Next.js dashboard |
+| `internal/store/` | Raspberry Pi | SQLite metrics; event storage planned |
+| `web/` | Raspberry Pi | Next.js status dashboard |
 | `config/example.yaml` | Raspberry Pi | Example topology and policy values |
 | `deploy/` | Pi and laptops | HAProxy, Docker, and systemd setup |
 
 The Go agent can read live Linux laptop metrics. The Go controller polls one agent every five seconds and stores samples locally. Scaling and physical hardware integration remain future phases.
 
-## Run locally
+## Run the laptop prototype
 
-Start each Go service in its own terminal from the repository root:
+You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's SQLite driver. Run each long-lived service in a **separate terminal** from the repository root. Leave those terminals open while checking the API.
 
-```sh
-go run ./cmd/controller
-go run ./cmd/agent
-go run ./cmd/demoapp
-```
+| Terminal | Command | Default address |
+| --- | --- | --- |
+| 1: laptop metrics agent | `go run ./cmd/agent` | `127.0.0.1:8081` |
+| 2: demo application | `go run ./cmd/demoapp` | `127.0.0.1:8000` |
+| 3: controller | `go run ./cmd/controller` | `127.0.0.1:8080` |
 
-The controller listens on `127.0.0.1:8080`, agent on `127.0.0.1:8081`, and demo app on `127.0.0.1:8000`. Use `CONTROLLER_ADDR`, `AGENT_ADDR`, or `DEMOAPP_ADDR` to change a bind address. To start the dashboard, run `npm install` and `npm run dev` in `web/`; it opens at `http://127.0.0.1:3000`.
-
-For a laptop-only metrics trial, start the agent and controller in that order, then read:
+Start the agent and app before the controller. Wait about five seconds for its first checks. In a **fourth terminal**, run:
 
 ```sh
 curl http://127.0.0.1:8081/metrics
+curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8080/api/status
 curl 'http://127.0.0.1:8080/api/metrics?limit=10'
 ```
 
-Start `go run ./cmd/demoapp` in a third terminal to see `app_health.status` become `healthy`; without it, the controller reports the app as `unhealthy` while laptop metrics can stay available. Set `AGENT_URL` and `APP_URL` on the controller to the services' private LAN URLs when running on separate machines. Set `SQLITE_PATH` to change the database path (default `data/monitor.sqlite3`) or `METRICS_DISK_PATH` on the agent to measure another mounted disk (default `/`). Recent samples remain in SQLite after controller restarts. When the agent is unreachable, the API sets `metrics_available` to false; old samples remain historical readings. The agent reads Linux `/proc`, so this implementation runs on Linux laptops and the Raspberry Pi.
+The status response should contain `"metrics_available":true` and `"app_health":{"status":"healthy",...}`. `"state":"UNCONFIGURED"` and `"hardware_ready":false` are expected until the Pi and wake/routing hardware are connected. Sample times are UTC; network byte values are cumulative counters. `/api/metrics` returns newest samples first, and `/api/metrics/latest` returns the newest one. The dashboard also shows metrics availability and app health: run `npm ci` once in `web/`, then `npm run dev` there and open `http://127.0.0.1:3000`.
+
+Stop a service with Ctrl+C in its terminal. Restart the controller after changing its code. The SQLite file defaults to `data/monitor.sqlite3` and is ignored by Git; saved samples survive a controller restart. If `curl` says “Couldn't connect to server,” check that the corresponding service is still running in its own terminal. If the app is stopped, `app_health.status` becomes `unhealthy` while metrics can remain available; if the agent is stopped, `metrics_available` becomes false while the app can remain healthy. Historical samples stay in the database in both cases.
+
+For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind addresses on the laptops, then set `AGENT_URL` and `APP_URL` on the controller to those hosts' URLs. `CONTROLLER_ADDR` changes the controller bind address; `SQLITE_PATH` changes the database path; `METRICS_DISK_PATH` changes the measured disk (default `/`). `config/example.yaml` records planned network values but is not loaded by the running services yet. Do not expose these prototype endpoints to the public internet.
 
 ## Current service boundaries
 
@@ -84,7 +87,7 @@ The [laptop Compose file](deploy/docker/README.md) builds the same Go app image 
 
 1. Confirm the standby wakes from the intended power state and starts its app automatically.
 2. Run the same stateless app on both laptops through the Pi proxy.
-3. Add metrics, health checks, and the activation state machine.
+3. Extend the working single-laptop metrics and app checks to both laptops, then add the activation state machine.
 4. Add event history, dashboard, alerts, and a repeatable demo.
 
 Copy `config/example.yaml` to `config/local.yaml` when device addresses and the standby MAC are known. Keep real settings and secrets out of version control.

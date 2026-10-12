@@ -2,7 +2,7 @@
 
 This README turns the [project idea](idea.md) into a sequence of deliverables. Each phase has a visible result and a completion check. Work through the phases in order because later phases depend on the hardware and traffic path established earlier.
 
-The existing repository scaffold is provisional. **Agree on its final structure before implementing the services.** The selected stack is Go for the controller, agents, and demo app; Next.js with TypeScript for the dashboard; HAProxy for routing; and SQLite for metrics and events.
+The selected stack is Go for the controller, agents, and demo app; Next.js with TypeScript for the dashboard; HAProxy for routing; and SQLite for metrics and events. The [repository README](../README.md) has the current single-laptop runbook. The Pi, standby laptop, Wake-on-LAN, and final proxy traffic path are still pending.
 
 ```mermaid
 flowchart LR
@@ -58,6 +58,8 @@ The demo app now has a bounded workload endpoint, a shared [laptop Compose setup
 **Done when:** requests pass through the Pi, the primary serves normally, and the healthy standby can be added manually without changing the client address.
 
 ## Phase 4 — Monitor and retain evidence
+
+The current laptop prototype collects and persists metrics for one agent and checks one demo app separately. The remaining work in this phase includes two-laptop support, request and latency measurements, and event history.
 
 - Run a Go metrics agent on each laptop and collect CPU, RAM, disk, network, uptime, and temperature where supported.
 - Have the Pi poll agents and probe each app's `/health` separately. Collect request rate, latency, and error counts from the proxy or app.

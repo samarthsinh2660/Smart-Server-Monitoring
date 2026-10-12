@@ -4,7 +4,7 @@ network:
   standby_host: "192.168.1.12"
   standby_mac: "00:11:22:33:44:55"
   app_port: 8000
-  agent_port: 8001
+  agent_port: 8081
 
 controller:
   poll_interval_seconds: 5
