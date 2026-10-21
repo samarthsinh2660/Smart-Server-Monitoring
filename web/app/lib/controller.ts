@@ -39,9 +39,15 @@ export type PredictionStatus = {
   reason?: string;
   risk_score?: number;
   model_version?: string;
-  source?: "synthetic" | "recorded";
+  source?: string;
   horizon_seconds?: number;
   scored_at?: string;
+  forecast_rpm?: number;
+  upper_rpm?: number;
+  surge_alert?: boolean;
+  shadow_action?: "capacity_unconfigured" | "would_wake" | "stay_primary";
+  shadow_capacity_rpm?: number | null;
+  operational_scale_ready?: boolean;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -137,9 +143,15 @@ export async function readPrediction(): Promise<PredictionStatus | null> {
       (value.reason !== undefined && typeof value.reason !== "string") ||
       (value.risk_score !== undefined && (!finiteNumber(value.risk_score) || value.risk_score < 0 || value.risk_score > 1)) ||
       (value.model_version !== undefined && typeof value.model_version !== "string") ||
-      (value.source !== undefined && value.source !== "synthetic" && value.source !== "recorded") ||
+      (value.source !== undefined && typeof value.source !== "string") ||
       (value.horizon_seconds !== undefined && !finiteNumber(value.horizon_seconds)) ||
       (value.scored_at !== undefined && typeof value.scored_at !== "string") ||
+      (value.forecast_rpm !== undefined && !finiteNumber(value.forecast_rpm)) ||
+      (value.upper_rpm !== undefined && !finiteNumber(value.upper_rpm)) ||
+      (value.surge_alert !== undefined && typeof value.surge_alert !== "boolean") ||
+      (value.shadow_action !== undefined && !["capacity_unconfigured", "would_wake", "stay_primary"].includes(String(value.shadow_action))) ||
+      (value.shadow_capacity_rpm !== undefined && !nullableNumber(value.shadow_capacity_rpm)) ||
+      (value.operational_scale_ready !== undefined && typeof value.operational_scale_ready !== "boolean") ||
       (value.available && value.risk_score === undefined)) return null;
     return value as PredictionStatus;
   } catch {

@@ -4,6 +4,9 @@ bin/
 *.test
 *.out
 vendor/
+.venv/
+__pycache__/
+*.pyc
 
 # Frontend build output
 web/node_modules/

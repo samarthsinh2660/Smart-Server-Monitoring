@@ -8,7 +8,7 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 - **Frontend:** Next.js with TypeScript. Node.js runs the Next.js dashboard; Go remains the only monitoring and scaling backend.
 - **Routing:** HAProxy on the Pi.
 - **Storage:** SQLite for timestamped metrics and controller events.
-- **AI preview:** Small logistic regression model trained and evaluated in Go; inference runs in the controller.
+- **AI preview:** Python demand forecasting and surge classification trained on the real Azure Functions 2019 trace. The Go controller forwards its local scoring service result.
 - **Deployment:** Docker Compose for the laptop app; systemd for controller and agent services.
 - **Network control:** Magic-packet wake over the local network. The current laptop reports Wi-Fi WoWLAN capability; an actual wake trial is still pending.
 
@@ -19,16 +19,14 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `cmd/controller/` | Raspberry Pi | Controller and HTTP API entry point |
 | `cmd/agent/` | Both laptops | Metrics agent entry point |
 | `cmd/demoapp/` | Both laptops | Stateless application entry point |
-| `cmd/trainmodel/` | Development laptop | Train and evaluate a small model from labelled feature rows |
-| `cmd/recordtrace/` | Development laptop | Capture real feature runs and label future CPU overload |
+| `model/` | Development laptop and later Pi | Python training, evaluation, artifact, and local inference service |
 | `internal/controller/` | Raspberry Pi | Metrics polling and independent app health checks; later, scaling decisions |
 | `internal/metrics/` | Pi and laptops | Metrics collection and transport |
 | `internal/config/` | Pi and laptops | Configuration loading |
 | `internal/proxy/` | Raspberry Pi | HAProxy target management |
 | `internal/store/` | Raspberry Pi | SQLite metrics, traffic, and controller events |
-| `internal/prediction/` | Development laptop and Pi | Feature extraction, model format, training, and inference |
 | `web/` | Raspberry Pi | Next.js status dashboard |
-| `start-backend.sh` | Development laptop | Build and start all three Go services together |
+| `start-backend.sh` | Development laptop | Build and start the Go services and the trained Python model together |
 | `config/example.yaml` | Raspberry Pi | Example topology and policy values |
 | `deploy/` | Pi and laptops | HAProxy, Docker, and systemd setup |
 
@@ -42,7 +40,7 @@ You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's
 ./start-backend.sh
 ```
 
-Leave that terminal open. Ctrl+C stops all three services. The script builds the Go binaries into ignored `bin/` files before starting them. Stop any older copies of these services first, or their ports will already be in use.
+Leave that terminal open. Ctrl+C stops the services. The script builds the Go binaries into ignored `bin/` files before starting them and starts the Python model service when its artifact exists. Stop any older copies first, or their ports will already be in use.
 
 For individual debugging, run each service in its own terminal:
 
@@ -77,40 +75,33 @@ curl 'http://127.0.0.1:8080/api/events?limit=10'
 
 The invalid `duration_ms=0` request returns HTTP 400 and increments the app error count. Requests per second and average latency use differences between consecutive five-second snapshots, so wait for the next controller poll if the newest sample still shows an earlier interval.
 
-## Try the AI preview
+## Run the Python traffic model
 
-The checked-in CSV is **synthetic demonstration data**. Its model proves the training and inference path, but its percentages are not a reliable forecast of this laptop. Train it once from the repository root:
+The [model guide](model/README.md) documents the real Azure Functions data, paper and author implementation that inspired the method, training command, held-out results, and limitations. The trained artifact is in `model/artifacts/`. Install its pinned Python dependencies, then start the backend:
 
 ```sh
-go run ./cmd/trainmodel -input examples/overload-training.csv -holdout-run burst-b -version demo-v2 -output data/overload-model.json
+python3 -m pip install -r model/requirements.txt
+./start-backend.sh
 ```
 
-The command reports accuracy and positive recall on the held-out `burst-b` run. The generated JSON weights are local runtime data and are ignored by Git. Restart the Go services with the model path set:
+The launcher starts the Python scoring service when `model/artifacts/serverless_model.joblib` exists. The Go controller forwards `/api/prediction` to that service. It needs **60 complete minutes** of request history before returning a score. Until then, the dashboard shows the reason that prediction is unavailable. Once history exists, check:
 
 ```sh
-MODEL_PATH=data/overload-model.json ./start-backend.sh
-```
-
-Start the dashboard separately from `web/` with `npm run dev`. The model needs at least six recent metric samples, six traffic samples, and a completed app request within the last 30 seconds. With the services running, generate about 40 seconds of steady traffic in another terminal:
-
-```sh
-for i in {1..80}; do curl -fsS 'http://127.0.0.1:8000/workload?duration_ms=500' >/dev/null || break; done
 curl http://127.0.0.1:8080/api/prediction
 ```
 
-The endpoint returns `available:true`, a `risk_score` from 0 to 1, model version, source, timestamp, and input features when it has fresh data. Otherwise it returns `available:false` with a reason. The dashboard shows the same state. The model uses interval p95 latency and its trend; p95 is a histogram bucket estimate, so its resolution depends on the bucket boundaries. The 120-second horizon in the example is provisional until WoL-to-health time is measured. With recorded weights, three consecutive scores at or above 0.8 write a clearly labelled **shadow trigger** to `/api/events`. Synthetic weights cannot trigger it. **No score wakes the standby or alters routing yet.**
-
-For real training data, use the model-independent `GET /api/features` endpoint and `go run ./cmd/recordtrace -run-id <unique-name> -duration 5m -horizon 2m` while a matching workload runs. The recorder appends labelled rows to ignored `data/recorded-traces.csv`. Read the [model decision and recorded-data workflow](docs/ai-model.md) before using recorded weights; the development model must not drive physical activation.
+The score means the chance of a **traffic surge** in the next two minutes, with a predicted request rate and upper estimate. It does not mean this laptop will overload. Set `MODEL_CAPACITY_RPM` to a measured one-server capacity to see a **shadow** `would_wake` or `stay_primary` decision. The model is trained on real Azure request traces, but those traces contain no measured capacity or benefit from adding this project's second server. **No score wakes a laptop or changes routing yet.** Held-out trace results and the remaining activation work are in the [model guide](model/README.md).
 
 Restart `./start-backend.sh` after changing Go code. The SQLite file defaults to `data/monitor.sqlite3` and is ignored by Git; saved samples survive a controller restart. If `curl` says “Couldn't connect to server,” check that the startup terminal is still running. If the app is stopped separately, `app_health.status` becomes `unhealthy` while metrics can remain available; if the agent is stopped separately, `metrics_available` becomes false while the app can remain healthy. Historical samples stay in the database in both cases.
 
-For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind addresses on the laptops, then set `AGENT_URL` and `APP_URL` on the controller to those hosts' URLs. `CONTROLLER_ADDR` changes the controller bind address; `SQLITE_PATH` changes the database path; `METRICS_DISK_PATH` changes the measured disk (default `/`). `config/example.yaml` records planned network values but is not loaded by the running services yet. Do not expose these prototype endpoints to the public internet.
+For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind addresses on the laptops, then set `AGENT_URL` and `APP_URL` on the controller to those hosts' URLs. `CONTROLLER_ADDR` changes the controller bind address; `SQLITE_PATH` changes the database path; `METRICS_DISK_PATH` changes the measured disk (default `/`). `MODEL_URL` points the controller at the private Python service (default `http://127.0.0.1:8090`), `MODEL_ARTIFACT` selects the local joblib file, and `MODEL_CAPACITY_RPM` enables the shadow capacity decision. `config/example.yaml` records planned network values but is not loaded by the running services yet. Do not expose these prototype endpoints to the public internet.
 
 ## Current service boundaries
 
 | Service | Available endpoints | Responsibility |
 | --- | --- | --- |
-| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest`, `GET /api/traffic`, `GET /api/events`, `GET /api/features`, `GET /api/prediction` | Polls one agent, app health, and app stats independently; stores samples and events; scores fresh inputs when a model is configured |
+| Go controller | `GET /health`, `GET /api/status`, `GET /api/metrics`, `GET /api/metrics/latest`, `GET /api/traffic`, `GET /api/events`, `GET /api/prediction` | Polls one agent, app health, and app stats independently; stores samples and events; forwards prediction requests to Python |
+| Python model | `GET /health`, `GET /prediction` | Builds minute request history and scores the trained traffic model |
 | Go agent | `GET /health`, `GET /identity`, `GET /metrics` | Reads CPU, memory, disk, network counters, uptime, and optional temperature |
 | Go demo app | `GET /health`, `GET /`, `GET /workload`, `GET /stats` | Stateless app with bounded CPU work and cumulative request counters |
 | Next.js dashboard | `GET /` | Reads the private Go API on the server and refreshes status, trends, and events every five seconds |

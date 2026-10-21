@@ -108,20 +108,22 @@ export default async function Home() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">AI PREVIEW</p>
-                <h3 id="prediction-heading">Overload prediction</h3>
+                <h3 id="prediction-heading">Traffic surge forecast</h3>
               </div>
             </div>
             {prediction?.available && prediction.risk_score !== undefined ? (
               <>
                 <p className="prediction-score">{Math.round(prediction.risk_score * 100)}%</p>
-                <p className="prediction-detail">Estimated overload risk within {prediction.horizon_seconds ?? "—"} seconds.</p>
-                <p className="prediction-detail">Model {prediction.model_version ?? "unknown"} · {prediction.source === "synthetic" ? "synthetic demo data" : "recorded training data"}</p>
+                <p className="prediction-detail">Chance of a traffic surge in the next {prediction.horizon_seconds ?? "—"} seconds.</p>
+                <p className="prediction-detail">Forecast {prediction.forecast_rpm?.toFixed(1) ?? "—"} requests/min · upper estimate {prediction.upper_rpm?.toFixed(1) ?? "—"}</p>
+                <p className="prediction-detail">Model {prediction.model_version ?? "unknown"} · trained on Azure Functions request traces</p>
+                {prediction.shadow_action && prediction.shadow_action !== "capacity_unconfigured" && <p className="prediction-detail">Shadow decision: {prediction.shadow_action === "would_wake" ? "would wake standby" : "keep primary only"} at {prediction.shadow_capacity_rpm} requests/min capacity</p>}
                 {prediction.scored_at && <p className="prediction-detail">Scored {clock(prediction.scored_at)}</p>}
               </>
             ) : (
               <p className="empty-state">Prediction unavailable: {prediction?.reason ?? "controller unavailable"}.</p>
             )}
-            <p className="panel-note">Preview only. The score does not wake a laptop or change traffic routing.</p>
+            <p className="panel-note">Research preview. Traffic forecasts do not measure server capacity and cannot wake a laptop or change routing.</p>
           </section>
 
           <section className="panel" aria-labelledby="health-heading">

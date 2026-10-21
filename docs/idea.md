@@ -23,9 +23,9 @@ flowchart LR
         Controller[Go controller and private API]
         Store[(SQLite metrics and events)]
         Next -->|server-side API calls| Controller
-        Model[Tiny predictive model in Go]
+        Model[Python traffic model service]
         Controller --> Store
-        Store -->|recent trends| Model
+        Controller -->|minute request history| Model
         Model -->|risk score| Controller
         Controller -->|enable or disable healthy targets| Proxy
     end
@@ -90,14 +90,14 @@ If the primary fails, the proxy must stop routing to it as soon as failure is co
 
 | Condition | Action |
 | --- | --- |
-| Primary healthy and CPU below 80% with low predicted risk | Keep standby off; route to primary |
-| Model predicts overload within the measured boot window | Wake standby early; add it only after health passes |
-| Primary CPU at or above 80% for 60 seconds | Wake standby once; add it after health passes |
+| Primary healthy and model risk below the activation gate | Keep standby off; route to primary |
+| Model predicts demand beyond measured primary capacity with enough lead time | Wake standby once; add it only after health passes |
+| Model or required inputs unavailable | Mark load scaling unavailable; alert the operator |
 | Primary app health fails for 3 consecutive probes | Remove primary from proxy, wake standby, and route to standby after health passes |
 | Standby boot or health check exceeds 3 minutes | Keep it out of the proxy; record failure and alert |
 | Standby already starting or active | Suppress duplicate activation |
 
-These are initial demo settings. CPU alone does not always predict user experience, so record request latency and error rate alongside CPU. Add memory pressure as a trigger only if the chosen workload needs it.
+These are design conditions for the physical prototype. The current Python model uses request history, not CPU, latency, memory, or errors. Its Azure-only score cannot activate hardware until capacity and false-wake tests validate the decision. Primary app failure remains a separate availability decision.
 
 Use explicit states: `PRIMARY_ONLY`, `STARTING_STANDBY`, `BOTH_ACTIVE`, `FAILOVER`, and `ACTIVATION_FAILED`. Persist transitions and their reasons. Keep the standby active until a manual reset in the first version. Automatic power down needs a separate safety policy.
 
@@ -116,36 +116,34 @@ stateDiagram-v2
 
 ## AI-assisted predictive scaling
 
-A small model on the Raspberry Pi can watch recent trends and wake Laptop 2 **before** the primary reaches the reactive threshold. This matters because WoL, boot, and application startup take time. The model augments the fixed load and failure rules; it does not control HAProxy directly.
+A small model on the Raspberry Pi can watch recent trends and wake Laptop 2 **before** the primary becomes overloaded. This matters because WoL, boot, and application startup take time. The model is the sole load-based scale-up signal; primary app failure remains an independent failover signal. The model does not control HAProxy directly.
 
 ### Model and inputs
 
-Use a tiny **logistic regression classifier implemented in Go**. It runs inside the Pi controller and stores a small versioned weight file. It predicts the risk that the primary will become overloaded within a future window. Start with a prediction horizon based on the measured WoL-to-healthy boot time plus a safety margin; for example, a 90-second boot suggests a roughly two-minute horizon.
+Use the small **Python serverless traffic model** in `model/`. It is trained on real Azure Functions 2019 HTTP invocation counts and predicts the next two-minute request peak and surge probability. It runs as a local service; the Go controller forwards its output. The forecast horizon must eventually be compared with measured WoL-to-healthy time. The model artifact is about 143 KB, but actual Pi memory and scoring time still need measurement.
 
-The [model decision and recorded-data workflow](ai-model.md) fixes logistic regression as the first Pi model, describes the laptop trace recorder, and lists the checks required before prediction can trigger physical activation.
+The [Python model guide](../model/README.md) records the dataset, research paper, author implementation, method adaptation, and held-out results. The [decision boundary](ai-model.md) lists checks required before prediction can trigger physical activation.
 
-Build one feature vector from the most recent five minutes of samples:
+Build one feature vector from the most recent 60 complete minutes of request counts:
 
 | Feature | What it captures |
 | --- | --- |
-| Average CPU and CPU slope | Current pressure and how quickly it is rising |
-| Request rate and request-rate slope | Incoming demand, including a traffic ramp |
-| p95 request latency and its slope | User-visible slowdown |
-| RAM utilization | Capacity pressure |
-| Recent error rate | Application stress or failure |
+| Latest count and five-, fifteen-, and sixty-minute means | Current demand and sustained level |
+| Recent maxima, trend, and volatility | Spikes and ramps |
+| Active-minute fraction and time of day | Intermittent and daily patterns |
 
-The laptop preview now estimates interval **p95** latency from bounded histogram buckets and uses its trend. The checked-in CSV contains synthetic examples for functional development only; train on recorded, run-separated traces before using a score to activate hardware.
+The Go monitoring path still measures p95 latency, CPU, and errors for evaluation, but the current Python model was trained only on real request histories. These service signals are needed to validate whether a second laptop improves performance; the Azure trace does not provide that evidence.
 
-The output is a risk score from 0 to 1 plus a model version and timestamp. The controller can display the score in the dashboard. It should treat missing or stale inputs as **prediction unavailable**, rather than silently turning them into zeros.
+The output is a surge probability from 0 to 1, a two-minute request forecast, an upper estimate, a model version, and timestamp. The controller displays it in the dashboard. Missing or stale input is **prediction unavailable**, rather than zero demand.
 
 ### Prediction to action
 
 ```mermaid
 flowchart LR
-    Samples[Recent metrics and request data] --> Features[Rolling trend features]
-    Features --> Model[Tiny Go model on Pi]
-    Model --> Risk[Predicted overload risk]
-    Risk --> Gate{Risk above threshold for several checks?}
+    Samples[Minute request history] --> Features[Past-only window features]
+    Features --> Model[Python model service]
+    Model --> Risk[Predicted demand and surge probability]
+    Risk --> Gate{Validated model decision above measured capacity?}
     Gate -->|Yes; standby is off| Controller[Go controller sends WoL]
     Gate -->|No| Observe[Continue monitoring]
     Controller --> Health[Wait for standby /health]
@@ -153,26 +151,26 @@ flowchart LR
     Health -->|Timeout| Alert[Record failure and alert]
 ```
 
-For the first experiment, a risk score of at least 0.8 on three consecutive evaluations can start the standby. This value must be tuned against measured false alarms and missed overloads. Once activation starts, the normal state machine prevents duplicate WoL packets. The standby joins traffic only after its health check succeeds.
+The present Azure-trained classifier has substantial false surge alerts and is a research preview. A physical activation threshold must be tuned only after measuring primary capacity, false wakes, missed overloads, and standby boot time. Once activation starts, the state machine prevents duplicate WoL packets. The standby joins traffic only after its health check succeeds.
 
-The deterministic rules remain active at all times: three failed primary health checks trigger failover, and sustained CPU above 80% triggers reactive activation. If the model is unavailable, has too little training data, or sees stale metrics, the system continues with those rules. The model is allowed to pre-wake the standby; it does not automatically power a server down in the first version.
+Three failed primary health checks still trigger failover. For a healthy primary, the validated Python model will supply the load-based scale-up signal. If the model or its inputs are unavailable, mark load scaling unavailable and alert. The standby joins traffic only after a successful app health check. The model does not automatically power a server down in the first version.
 
 ### Training and evaluation
 
-Collect timestamped traces from repeatable **steady**, **gradual ramp**, and **sudden burst** workloads. For the first version, label a sample positive when the fixed CPU overload rule will fire within the selected prediction horizon. Later experiments can also label a configurable latency target. Keep whole workload runs separate between training and evaluation so nearby samples do not leak into both sets. Train the small model with Go on a development laptop, then deploy only the learned weights to the Pi for local inference. Retraining can be done after more traces are collected; the currently deployed model version must be recorded with every prediction-driven event.
+Train and evaluate the Python model directly on the real Azure Functions 2019 trace. Use days 1–10 for training, 11–12 for validation and calibration, and 13–14 for final evaluation. The target is future request demand and a derived traffic-surge label. Keep the method and all measurements in `model/`. Later, record repeatable **steady**, **gradual ramp**, and **sudden burst** experiments on the actual laptops to measure capacity and confirm whether a wake decision helps; no CPU or benefit labels are invented from the Azure trace.
 
-Compare the predictive policy against the fixed-threshold policy on separate demo runs. Report prediction lead time, missed overloads, unnecessary wake-ups, activation time, request errors, and the Pi CPU/RAM used by inference. A useful model wakes the standby early enough to reduce degraded service without repeatedly waking it during harmless spikes. Related research: [Predictive Auto-scaling with OpenStack Monasca](https://arxiv.org/abs/2111.02133) studies forecasts when server startup takes time.
+Compare the model-only load policy against a fixed-threshold offline baseline on separate physical demo runs. Report prediction lead time, missed overloads, unnecessary wake-ups, activation time, request errors, and the Pi CPU/RAM used by Python inference. A useful model wakes the standby early enough to reduce degraded service without repeatedly waking it during harmless spikes. Method inspiration: [AAPA](https://arxiv.org/abs/2507.05653) studies workload patterns and uncertainty on Azure serverless traces.
 
 ### Later: AI-guided scale down
 
-After predictive scale up is reliable, the same trend score can help decide when Laptop 2 is no longer needed. Require low predicted overload risk for a longer window, low measured load, a healthy primary, and a cool-down period. The Go controller should first drain Laptop 2 from HAProxy, wait for in-flight requests to finish, and only then suspend it into a WoL-compatible state. If the primary becomes unhealthy during the drain, cancel the scale down. Keep a manual override. This is an extension after the first physical activation demo, because premature scale down could cause repeated wake/suspend cycles.
+After predictive scale up is reliable, the demand forecast can help decide when Laptop 2 is no longer needed. Require low predicted demand for a longer window, low measured load, a healthy primary, and a cool-down period. The Go controller should first drain Laptop 2 from HAProxy, wait for in-flight requests to finish, and only then suspend it into a WoL-compatible state. If the primary becomes unhealthy during the drain, cancel the scale down. Keep a manual override. This is an extension after the first physical activation demo, because premature scale down could cause repeated wake/suspend cycles.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
 | Pi controller | Poll metrics and health, evaluate rules and model score, send WoL, manage states, store events |
-| Pi prediction model | Forecast overload risk from recent trends and report its model version |
+| Pi Python prediction service | Forecast future request demand and surge probability from recent traffic; report model version |
 | Reverse proxy on Pi | Give clients one address; route only to healthy, enabled app instances |
 | Laptop metrics agents | Expose CPU, memory, disk, network, temperature when available, and uptime |
 | Application on both laptops | Serve the same stateless HTTP endpoint and `GET /health` |
@@ -187,7 +185,7 @@ The Next.js dashboard can poll its own server-side routes every few seconds; tho
 | --- | --- | --- |
 | Edge hardware and OS | Raspberry Pi with 64-bit Raspberry Pi OS; two laptops on a validated local network | Pi stays on; Laptop 1 serves normally; Laptop 2 is the wake-capable standby |
 | Controller and backend API | Go with the standard `net/http` package | One Pi service owns polling, thresholds, health checks, state transitions, WoL, alerts, and operator API |
-| Predictive model | Tiny Go logistic regression classifier with a versioned weight file | Runs on the Pi and estimates overload risk before standby boot time |
+| Predictive model | Python histogram gradient boosting with a versioned joblib artifact | Runs as a private service and forecasts two-minute request demand and surge risk |
 | Laptop metrics agents | Go with Linux `/proc` and `statfs` | Agent runs on each Linux laptop and reports CPU, memory, disk, network, temperature when available, and uptime |
 | Demo application | Go HTTP service | Same stateless application image on both laptops; exposes `GET /health` and identifies the serving laptop |
 | Frontend | Next.js App Router, React, and TypeScript | Operator dashboard and controls; runs as a Node.js service on the Pi |
@@ -227,7 +225,7 @@ Minimum controller API:
 
 ```http
 GET  /api/status
-GET  /api/predictions
+GET  /api/prediction
 GET  /api/metrics
 GET  /api/events
 POST /api/standby/activate
@@ -240,14 +238,14 @@ Protect manual actions with operator authentication in Next.js and authorization
 
 1. **Hardware proof:** Wake the standby from the Pi and start its app automatically on boot.
 2. **Traffic path:** Put the Pi proxy in front of the primary app; add the standby manually after `/health` succeeds.
-3. **Controller:** Add polling, sustained load and failure triggers, activation states, timeout, and event log.
-4. **Prediction:** Collect workload traces, train the small Go model, and compare its decisions with the fixed thresholds.
+3. **Controller:** Add polling, model-driven load activation, health-failure failover, activation states, timeout, and event log.
+4. **Prediction:** Train the Python model on the real Azure trace, evaluate on separate days, then measure local capacity and compare model-guided decisions with an offline baseline before activation.
 5. **Visibility:** Add the dashboard and useful alerts.
 6. **Demo polish:** Generate repeatable load, show before and after metrics, and document recovery.
 
 ## Demonstration and success criteria
 
-Start with the primary serving requests and the standby in its tested low power state. Generate enough application load to exceed the threshold for 60 seconds. Show the Pi recording the trigger, sending WoL, waiting for the standby to boot, checking `/health`, and routing new requests to both laptops. Then simulate primary failure and show the proxy stop using it while the standby continues serving requests.
+Start with the primary serving requests and the standby in its tested low power state. Generate demand beyond measured primary capacity and show a validated model decision. Show the Pi recording it, sending WoL, waiting for the standby to boot, checking `/health`, and routing new requests to both laptops. Then simulate primary failure and show the proxy stop using it while the standby continues serving requests.
 
 The activation path should need no manual step, and the dashboard should record timestamps and reasons for every transition. Measure **detection time**, **WoL to health time**, **total activation time**, and **request failures during failover**. Expect a boot delay; support any claim of uninterrupted service with measurements. For the AI run, also compare prediction lead time, false wake-ups, missed overloads, and request failures with the fixed-threshold run.
 
@@ -257,7 +255,7 @@ The original monitoring idea includes CPU, RAM, disk, disk I/O, network traffic,
 
 | Metric | Source | Display and use |
 | --- | --- | --- |
-| CPU utilization | Laptop agent | Main sustained load trigger and chart |
+| CPU utilization | Laptop agent | Capacity evaluation and chart; not an input to the current Azure-trained model |
 | RAM utilization | Laptop agent | Capacity warning and chart |
 | Disk used and disk I/O | Laptop agent | Diagnose storage pressure |
 | Network in/out | Laptop agent | Show how traffic changes after activation |
@@ -292,7 +290,7 @@ CPU 80% to below 90%      HIGH
 CPU 90% or above          CRITICAL
 ```
 
-These levels are for the dashboard. The actual scale trigger is CPU at or above 80% for 60 continuous seconds. Keeping display severity separate from the trigger prevents every warning from starting the standby. Save thresholds in configuration so they can be adjusted for the chosen workload. CPU is a controlled demo signal; record latency and errors to judge whether adding Laptop 2 actually helped.
+These levels are for the dashboard. A future operational scale trigger must be calibrated from measured capacity and model false-alarm cost; the current Azure-trained score cannot activate hardware. Record latency and errors to judge whether adding Laptop 2 actually helped.
 
 ## Wake-on-LAN and boot readiness
 
@@ -358,7 +356,7 @@ The Pi API connects the controller, dashboard, and manual operator controls. The
 
 ```http
 GET  /api/status
-GET  /api/predictions
+GET  /api/prediction
 GET  /api/servers
 GET  /api/servers/:id
 GET  /api/servers/:id/metrics
@@ -387,9 +385,9 @@ Example status response:
 
 ## Dashboard and alert details
 
-The Next.js dashboard should answer four questions quickly: which laptops serve traffic, why the state changed, what overload risk the model predicts, and whether availability or performance improved.
+The Next.js dashboard should answer four questions quickly: which laptops serve traffic, why the state changed, what demand the model predicts, and whether availability or performance improved.
 
-Use Tailwind CSS for the interface and Recharts for historical charts. Show current server status, predicted overload risk and model version, CPU/RAM/network values, historical charts, active and standby servers, application health, request latency, error counts, uptime, and a time ordered event history. Mark a measurement as stale when its last sample is old. Operator controls can provide manual activate, retry, and reset.
+Use Tailwind CSS for the interface and Recharts for historical charts. Show current server status, traffic surge risk and model version, CPU/RAM/network values, historical charts, active and standby servers, application health, request latency, error counts, uptime, and a time ordered event history. Mark a measurement as stale when its last sample is old. Operator controls can provide manual activate, retry, and reset.
 
 ```text
 SMART SERVER MONITOR                 State: BOTH_ACTIVE
@@ -397,9 +395,9 @@ SMART SERVER MONITOR                 State: BOTH_ACTIVE
 Laptop 1  ACTIVE  HEALTHY  CPU 54%   Latency p95 120 ms
 Laptop 2  ACTIVE  HEALTHY  CPU 41%   Latency p95 110 ms
 
-09:40:30  AI forecast: 0.82 overload risk within 2 minutes
+09:40:30  AI forecast: high demand beyond measured capacity in 2 minutes
 09:40:45  Wake-on-LAN sent early to Laptop 2
-09:41:00  Fixed CPU rule fires; activation already in progress
+09:41:00  CPU reaches high display level; activation already in progress
 09:42:20  Laptop 2 health check passed
 09:42:21  Laptop 2 added to proxy
 ```
@@ -412,7 +410,7 @@ Alert examples:
 | CRITICAL | Primary app failed three health checks; failover started |
 | INFO | WoL packet sent to standby |
 | INFO | Model predicted overload; early wake triggered |
-| WARNING | Prediction unavailable; fixed rules remain active |
+| WARNING | Prediction unavailable; load scaling paused while health-failure failover remains active |
 | SUCCESS | Standby passed health check and joined the proxy |
 | ERROR | Standby did not become healthy before timeout |
 
@@ -428,7 +426,7 @@ The dashboard event feed is the first notification channel. Email, Telegram, Dis
 | Standby boots but app does not | Keep it out of proxy and record health failure |
 | Standby fails while both are active | Remove standby; continue on healthy primary |
 | Pi controller restarts | Recheck both apps and reconcile proxy targets with actual health |
-| Model unavailable or input metrics stale | Continue fixed-threshold and failure rules; show prediction unavailable |
+| Model unavailable or input metrics stale | Pause load-based activation, keep health-failure failover, and show prediction unavailable |
 | Pi or network switch fails | Service entry point is unavailable; state as prototype limitation |
 
 Persist state transitions, but do not blindly trust saved state after a restart. The Pi should probe actual health and inspect proxy targets before resuming decisions.
@@ -436,12 +434,12 @@ Persist state transitions, but do not blindly trust saved state after a restart.
 ## Demonstration walkthrough and measurements
 
 1. **Normal state:** Laptop 1 serves requests, Laptop 2 is off or asleep, and the dashboard shows `PRIMARY_ONLY`.
-2. **Generate load:** Run repeatable traffic against the app. Show CPU rising through the warning and high levels. Wait for the 60 second trigger window.
+2. **Generate load:** Replay traffic against the app. Show a validated model forecast above measured capacity before activation.
 3. **Automatic scale up:** Show the recorded trigger, WoL packet, `STARTING_STANDBY`, successful health check, proxy change, and `BOTH_ACTIVE`. Show requests reaching both server names.
 4. **Warm failure test:** With both laptops active, stop the primary app. After three failed probes, show the proxy stop routing to it and the state change to `FAILOVER`.
 5. **Cold failure test:** Reset to primary only, then stop the primary. Measure failed requests while the standby boots. This demonstrates the limit of an off or sleeping standby.
 6. **Failed activation test:** Prevent standby startup or health from succeeding and show timeout, `ACTIVATION_FAILED`, and an error alert.
-7. **Predictive comparison:** Repeat a gradual traffic ramp with model prediction enabled and compare early wake time, request errors, and unnecessary wake-ups against the fixed-threshold run.
+7. **Model comparison:** Repeat a gradual traffic ramp and compare model-driven wake time, request errors, and unnecessary wake-ups against a fixed-threshold offline baseline.
 
 Record detection time, WoL to health time, total activation time, request failures during cold and warm failover, and CPU/latency before and after activation. The demo succeeds when the Pi completes the activation path without manual steps, the proxy routes only to healthy servers, and the dashboard gives an accurate timeline and reason for every result.
 

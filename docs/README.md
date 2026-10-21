@@ -2,7 +2,7 @@
 
 This README turns the [project idea](idea.md) into a sequence of deliverables. Each phase has a visible result and a completion check. Work through the phases in order because later phases depend on the hardware and traffic path established earlier.
 
-The selected stack is Go for the controller, agents, and demo app; Next.js with TypeScript for the dashboard; HAProxy for routing; and SQLite for metrics and events. The [repository README](../README.md) has the current single-laptop runbook. The Pi, standby laptop, Wake-on-LAN, and final proxy traffic path are still pending.
+The selected stack is Go for the controller, agents, and demo app; Python for model training and inference; Next.js with TypeScript for the dashboard; HAProxy for routing; and SQLite for metrics and events. The [repository README](../README.md) has the current single-laptop runbook. The Pi, standby laptop, Wake-on-LAN, and final proxy traffic path are still pending.
 
 ```mermaid
 flowchart LR
@@ -71,7 +71,7 @@ The current laptop prototype collects and persists metrics for one agent, checks
 ## Phase 5 — Automate scale up and failover
 
 - Implement the documented states: `PRIMARY_ONLY`, `STARTING_STANDBY`, `BOTH_ACTIVE`, `FAILOVER`, and `ACTIVATION_FAILED`.
-- Trigger activation after CPU stays at or above 80% for 60 seconds, or after three failed primary app health probes. Keep the timings configurable.
+- Use the Python model as the only load-based activation signal after measuring request capacity, false wakes, and standby startup time. Treat three failed primary app health probes as a separate failover decision.
 - Send WoL once, wait up to the configured startup timeout, and enable the standby in HAProxy only after `/health` succeeds.
 - Remove an unhealthy primary promptly, prevent duplicate activation, record every transition, and provide guarded manual activate, retry, and reset actions.
 
@@ -90,14 +90,14 @@ The current Next.js dashboard already shows live laptop and app readings, three 
 
 ## Phase 7 — Add the small predictive model
 
-The laptop-only preview now has a Go trainer, versioned logistic regression weights, fresh-input scoring in the controller, a dashboard risk panel, a real-run trace recorder, and histogram-based p95 latency. The included training rows are synthetic and exercise the code path only. See the [runbook](../README.md#try-the-ai-preview) and [model decision](ai-model.md). The physical activation experiment and recorded workload evaluation remain for the Pi and standby setup.
+The [Python model](../model/README.md) is trained on the supplied real Azure Functions 2019 invocation data. Its training, calibration, evaluation, and inference live in `model/`; the Go controller forwards its result. Held-out Azure days show better request forecasting than a latest-minute baseline, but false surge alerts remain substantial. The model reports research-preview status because the physical activation experiment and a measured two-server capacity comparison are still pending. See the [runbook](../README.md#run-the-python-traffic-model) and [decision boundary](ai-model.md).
 
-- Capture repeatable steady, ramp, and burst workload traces. Label whether the fixed overload rule fires within the measured boot-time horizon.
-- Train a small logistic regression model in Go, keep whole workload runs separate between training and evaluation, and deploy versioned weights to the Pi.
-- Show model risk, version, and availability in the dashboard. A high score on several consecutive checks may pre-wake the standby.
-- Keep the reactive CPU and failure rules active. If predictions or inputs are unavailable, return to those rules; keep the health gate before routing.
+- Train and evaluate the small Python workload model directly on real Azure trace days; keep training, calibration, and test days separate.
+- Show surge probability, predicted request rate, model version, and availability in the dashboard.
+- Measure single- and dual-server service capacity, standby startup time, false wakes, and missed overloads before permitting model-guided pre-wake.
+- When the model or inputs are unavailable, show load-based scaling as unavailable. Keep health-failure failover and the standby health gate independent of the model.
 
-**Done when:** a gradual load run can wake the standby before the reactive rule, and a comparison reports lead time, missed overloads, unnecessary wakes, request failures, and Pi inference cost.
+**Done when:** a gradual load run can wake the standby before overload, and a held-out comparison reports lead time, missed overloads, unnecessary wakes, request failures, and Pi inference cost.
 
 ## Phase 8 — Harden and recover
 
@@ -111,7 +111,7 @@ The laptop-only preview now has a Go trainer, versioned logistic regression weig
 ## Phase 9 — Demonstrate and document the result
 
 - Run normal traffic, sustained load, automatic activation, warm failover, cold failover, and failed activation demonstrations.
-- Compare fixed-threshold and predictive runs. Report detection time, WoL-to-health time, total activation time, request failures, latency, false wakes, and missed overloads.
+- Compare the model-only load policy against a fixed-threshold offline baseline. Report detection time, WoL-to-health time, total activation time, request failures, latency, false wakes, and missed overloads.
 - Write a setup guide with hardware settings, configuration steps, startup commands, reset steps, architecture diagrams, and known limitations.
 - Capture the final dashboard timeline and measurements for the project presentation.
 

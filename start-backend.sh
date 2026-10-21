@@ -29,7 +29,18 @@ pids+=("$!")
 ./bin/controller &
 pids+=("$!")
 
-echo "Agent, demo app, and controller started. Press Ctrl+C to stop all three."
+model_artifact="${MODEL_ARTIFACT:-model/artifacts/serverless_model.joblib}"
+if [[ -f "$model_artifact" ]]; then
+  model_args=(--artifact "$model_artifact")
+  if [[ -n "${MODEL_CAPACITY_RPM:-}" ]]; then
+    model_args+=(--capacity-rpm "$MODEL_CAPACITY_RPM")
+  fi
+  python3 -m model.serve "${model_args[@]}" &
+  pids+=("$!")
+  echo "Agent, demo app, controller, and Python model started. Press Ctrl+C to stop all."
+else
+  echo "Agent, demo app, and controller started. Python model artifact not found at $model_artifact."
+fi
 if wait -n "${pids[@]}"; then
   echo "A backend service stopped; stopping the others."
 else
