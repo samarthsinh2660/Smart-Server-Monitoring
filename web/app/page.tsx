@@ -1,5 +1,5 @@
 import { HistoryChart } from "./history-chart";
-import { readEvents, readMetrics, readStatus, readTraffic } from "./lib/controller";
+import { readEvents, readMetrics, readPrediction, readStatus, readTraffic } from "./lib/controller";
 import { RefreshTicker } from "./refresh-ticker";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +15,8 @@ function clock(value: string): string {
 }
 
 export default async function Home() {
-  const [status, metrics, traffic, events] = await Promise.all([
-    readStatus(), readMetrics(), readTraffic(), readEvents(),
+  const [status, metrics, traffic, events, prediction] = await Promise.all([
+    readStatus(), readMetrics(), readTraffic(), readEvents(), readPrediction(),
   ]);
   const currentMetrics = status?.metrics_available ? metrics[0] : undefined;
   const currentTraffic = status?.traffic_available ? traffic[0] : undefined;
@@ -73,7 +73,7 @@ export default async function Home() {
         <article className="summary-card">
           <p className="card-label">Average response</p>
           <p className="big-value">{currentTraffic?.avg_latency_ms == null ? "—" : `${currentTraffic.avg_latency_ms.toFixed(0)} ms`}</p>
-          <p className="card-caption">Error rate this interval: {currentTraffic?.error_rate_percent == null ? "—" : percent(currentTraffic.error_rate_percent)}</p>
+          <p className="card-caption">P95: {currentTraffic?.p95_latency_ms == null ? "—" : `${currentTraffic.p95_latency_ms.toFixed(0)} ms`} · Errors: {currentTraffic?.error_rate_percent == null ? "—" : percent(currentTraffic.error_rate_percent)}</p>
         </article>
       </section>
 
@@ -104,6 +104,26 @@ export default async function Home() {
         </div>
 
         <div className="side-column">
+          <section className="panel" aria-labelledby="prediction-heading">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">AI PREVIEW</p>
+                <h3 id="prediction-heading">Overload prediction</h3>
+              </div>
+            </div>
+            {prediction?.available && prediction.risk_score !== undefined ? (
+              <>
+                <p className="prediction-score">{Math.round(prediction.risk_score * 100)}%</p>
+                <p className="prediction-detail">Estimated overload risk within {prediction.horizon_seconds ?? "—"} seconds.</p>
+                <p className="prediction-detail">Model {prediction.model_version ?? "unknown"} · {prediction.source === "synthetic" ? "synthetic demo data" : "recorded training data"}</p>
+                {prediction.scored_at && <p className="prediction-detail">Scored {clock(prediction.scored_at)}</p>}
+              </>
+            ) : (
+              <p className="empty-state">Prediction unavailable: {prediction?.reason ?? "controller unavailable"}.</p>
+            )}
+            <p className="panel-note">Preview only. The score does not wake a laptop or change traffic routing.</p>
+          </section>
+
           <section className="panel" aria-labelledby="health-heading">
             <div className="panel-heading">
               <div>

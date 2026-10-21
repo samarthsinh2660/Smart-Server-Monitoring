@@ -38,6 +38,7 @@ func TestTrafficPollerCalculatesIntervalAndRetainsHistory(t *testing.T) {
 	snapshot.RequestCount = 10
 	snapshot.ErrorCount = 2
 	snapshot.DurationSumMS = 200
+	snapshot.LatencyBuckets[2] = 10
 	poller.Poll(context.Background())
 	available, lastErr, _ := poller.State()
 	if !available || lastErr != "" {
@@ -47,7 +48,7 @@ func TestTrafficPollerCalculatesIntervalAndRetainsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(samples) != 2 || samples[1].RequestRate != nil || samples[0].RequestRate == nil || *samples[0].RequestRate != 2 || *samples[0].ErrorRate != 20 || *samples[0].AvgLatencyMS != 20 {
+	if len(samples) != 2 || samples[1].RequestRate != nil || samples[0].RequestRate == nil || *samples[0].RequestRate != 2 || *samples[0].ErrorRate != 20 || *samples[0].AvgLatencyMS != 20 || samples[0].P95LatencyMS == nil || *samples[0].P95LatencyMS != 50 {
 		t.Fatalf("traffic samples = %+v", samples)
 	}
 	snapshot.StartedAt = time.Now().UTC().Add(-time.Second)

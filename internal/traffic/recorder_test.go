@@ -20,4 +20,11 @@ func TestRecorderExcludesProbesAndCountsErrors(t *testing.T) {
 	if s.Hostname != "laptop" || s.RequestCount != 2 || s.ErrorCount != 1 || s.SampledAt.IsZero() || s.DurationSumMS < 0 {
 		t.Fatalf("unexpected snapshot: %+v", s)
 	}
+	var bucketCount uint64
+	for _, count := range s.LatencyBuckets {
+		bucketCount += count
+	}
+	if bucketCount != s.RequestCount {
+		t.Fatalf("latency buckets count %d, requests %d", bucketCount, s.RequestCount)
+	}
 }

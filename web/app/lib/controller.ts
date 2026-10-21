@@ -23,6 +23,7 @@ export type TrafficSample = {
   request_rate_per_second: number | null;
   error_rate_percent: number | null;
   avg_latency_ms: number | null;
+  p95_latency_ms: number | null;
 };
 
 export type ControllerEvent = {
@@ -31,6 +32,16 @@ export type ControllerEvent = {
   kind: string;
   status: string;
   message: string;
+};
+
+export type PredictionStatus = {
+  available: boolean;
+  reason?: string;
+  risk_score?: number;
+  model_version?: string;
+  source?: "synthetic" | "recorded";
+  horizon_seconds?: number;
+  scored_at?: string;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -97,7 +108,8 @@ export async function readTraffic(): Promise<TrafficSample[]> {
       isObject(item) && typeof item.sampled_at === "string" &&
       finiteNumber(item.request_count) && finiteNumber(item.error_count) &&
       nullableNumber(item.request_rate_per_second) &&
-      nullableNumber(item.error_rate_percent) && nullableNumber(item.avg_latency_ms)
+      nullableNumber(item.error_rate_percent) && nullableNumber(item.avg_latency_ms) &&
+      nullableNumber(item.p95_latency_ms)
     );
   } catch {
     return [];
@@ -115,5 +127,22 @@ export async function readEvents(): Promise<ControllerEvent[]> {
     );
   } catch {
     return [];
+  }
+}
+
+export async function readPrediction(): Promise<PredictionStatus | null> {
+  try {
+    const value = await read("/api/prediction");
+    if (!isObject(value) || typeof value.available !== "boolean" ||
+      (value.reason !== undefined && typeof value.reason !== "string") ||
+      (value.risk_score !== undefined && (!finiteNumber(value.risk_score) || value.risk_score < 0 || value.risk_score > 1)) ||
+      (value.model_version !== undefined && typeof value.model_version !== "string") ||
+      (value.source !== undefined && value.source !== "synthetic" && value.source !== "recorded") ||
+      (value.horizon_seconds !== undefined && !finiteNumber(value.horizon_seconds)) ||
+      (value.scored_at !== undefined && typeof value.scored_at !== "string") ||
+      (value.available && value.risk_score === undefined)) return null;
+    return value as PredictionStatus;
+  } catch {
+    return null;
   }
 }

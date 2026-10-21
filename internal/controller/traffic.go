@@ -89,6 +89,9 @@ func (p *TrafficPoller) Poll(ctx context.Context) {
 			avgLatency := (snapshot.DurationSumMS - previous.DurationSumMS) / float64(requests)
 			sample.ErrorRate = &errorRate
 			sample.AvgLatencyMS = &avgLatency
+			if p95, ok := traffic.P95Latency(snapshot.LatencyBuckets, previous.LatencyBuckets); ok {
+				sample.P95LatencyMS = &p95
+			}
 		}
 	}
 	if err := p.Store.SaveTraffic(requestCtx, sample); err != nil {

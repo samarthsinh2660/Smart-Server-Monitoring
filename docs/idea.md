@@ -122,6 +122,8 @@ A small model on the Raspberry Pi can watch recent trends and wake Laptop 2 **be
 
 Use a tiny **logistic regression classifier implemented in Go**. It runs inside the Pi controller and stores a small versioned weight file. It predicts the risk that the primary will become overloaded within a future window. Start with a prediction horizon based on the measured WoL-to-healthy boot time plus a safety margin; for example, a 90-second boot suggests a roughly two-minute horizon.
 
+The [model decision and recorded-data workflow](ai-model.md) fixes logistic regression as the first Pi model, describes the laptop trace recorder, and lists the checks required before prediction can trigger physical activation.
+
 Build one feature vector from the most recent five minutes of samples:
 
 | Feature | What it captures |
@@ -131,6 +133,8 @@ Build one feature vector from the most recent five minutes of samples:
 | p95 request latency and its slope | User-visible slowdown |
 | RAM utilization | Capacity pressure |
 | Recent error rate | Application stress or failure |
+
+The laptop preview now estimates interval **p95** latency from bounded histogram buckets and uses its trend. The checked-in CSV contains synthetic examples for functional development only; train on recorded, run-separated traces before using a score to activate hardware.
 
 The output is a risk score from 0 to 1 plus a model version and timestamp. The controller can display the score in the dashboard. It should treat missing or stale inputs as **prediction unavailable**, rather than silently turning them into zeros.
 

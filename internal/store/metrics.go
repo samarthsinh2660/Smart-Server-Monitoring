@@ -58,6 +58,10 @@ func Open(path string) (*Metrics, error) {
 		db.Close()
 		return nil, fmt.Errorf("initialize metrics table: %w", err)
 	}
+	if err := ensureTrafficP95Column(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Metrics{db: db}, nil
 }
 

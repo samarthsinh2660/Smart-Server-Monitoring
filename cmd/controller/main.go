@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"smartserver/internal/controller"
 	"smartserver/internal/httpserver"
+	"smartserver/internal/prediction"
 	"smartserver/internal/store"
 )
 
@@ -37,6 +39,18 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+	var model *prediction.Model
+	var modelError string
+	if path := os.Getenv("MODEL_PATH"); path != "" {
+		loaded, err := prediction.Load(path)
+		if err != nil {
+			modelError = "model file could not be loaded"
+			log.Printf("load prediction model: %v", err)
+		} else {
+			model = &loaded
+			log.Printf("loaded %s prediction model %s", loaded.Source, loaded.Version)
+		}
+	}
 	poller := &controller.Poller{AgentURL: agentURL, Client: &http.Client{Timeout: 3 * time.Second}, Store: db, Interval: 5 * time.Second}
 	appProbe := &controller.HealthProbe{AppURL: appURL, Client: &http.Client{Timeout: 2 * time.Second}, Interval: 5 * time.Second}
 	trafficPoller := &controller.TrafficPoller{AppURL: appURL, Client: &http.Client{Timeout: 2 * time.Second}, Store: db, Interval: 5 * time.Second}
@@ -45,6 +59,29 @@ func main() {
 	go appProbe.Run(context.Background())
 	go trafficPoller.Run(context.Background())
 	go events.Run(context.Background())
+	if model != nil {
+		go func() {
+			var gate prediction.Gate
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				metricsAvailable, _, _ := poller.State()
+				trafficAvailable, _, _ := trafficPoller.State()
+				result := controller.EvaluatePrediction(context.Background(), db, model, "", metricsAvailable, trafficAvailable)
+				score := 0.0
+				if result.RiskScore != nil {
+					score = *result.RiskScore
+				}
+				if !gate.Observe(result.Available, result.Source, score) {
+					continue
+				}
+				event := store.Event{OccurredAt: time.Now().UTC(), Kind: "prediction", Status: "shadow_trigger", Message: fmt.Sprintf("Recorded model %s reached three high-risk checks; standby activation is pending hardware", result.ModelVersion)}
+				if err := db.SaveEvent(context.Background(), event); err != nil {
+					log.Printf("save prediction shadow event: %v", err)
+				}
+			}
+		}()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		httpserver.WriteJSON(w, http.StatusOK, struct {
@@ -114,6 +151,17 @@ func main() {
 			return
 		}
 		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"events": items})
+	})
+	mux.HandleFunc("GET /api/prediction", func(w http.ResponseWriter, r *http.Request) {
+		metricsAvailable, _, _ := poller.State()
+		trafficAvailable, _, _ := trafficPoller.State()
+		result := controller.EvaluatePrediction(r.Context(), db, model, modelError, metricsAvailable, trafficAvailable)
+		httpserver.WriteJSON(w, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /api/features", func(w http.ResponseWriter, r *http.Request) {
+		metricsAvailable, _, _ := poller.State()
+		trafficAvailable, _, _ := trafficPoller.State()
+		httpserver.WriteJSON(w, http.StatusOK, controller.ReadFeatures(r.Context(), db, metricsAvailable, trafficAvailable))
 	})
 	mux.HandleFunc("GET /api/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
 		sample, err := db.Latest(r.Context())

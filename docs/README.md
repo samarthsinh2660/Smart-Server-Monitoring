@@ -90,6 +90,8 @@ The current Next.js dashboard already shows live laptop and app readings, three 
 
 ## Phase 7 — Add the small predictive model
 
+The laptop-only preview now has a Go trainer, versioned logistic regression weights, fresh-input scoring in the controller, a dashboard risk panel, a real-run trace recorder, and histogram-based p95 latency. The included training rows are synthetic and exercise the code path only. See the [runbook](../README.md#try-the-ai-preview) and [model decision](ai-model.md). The physical activation experiment and recorded workload evaluation remain for the Pi and standby setup.
+
 - Capture repeatable steady, ramp, and burst workload traces. Label whether the fixed overload rule fires within the measured boot-time horizon.
 - Train a small logistic regression model in Go, keep whole workload runs separate between training and evaluation, and deploy versioned weights to the Pi.
 - Show model risk, version, and availability in the dashboard. A high score on several consecutive checks may pre-wake the standby.

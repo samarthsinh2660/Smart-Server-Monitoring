@@ -8,21 +8,23 @@ import (
 
 // Snapshot contains cumulative client traffic counters since the app started.
 type Snapshot struct {
-	Hostname      string    `json:"hostname"`
-	StartedAt     time.Time `json:"started_at"`
-	SampledAt     time.Time `json:"sampled_at"`
-	RequestCount  uint64    `json:"request_count"`
-	ErrorCount    uint64    `json:"error_count"`
-	DurationSumMS float64   `json:"duration_sum_ms"`
+	Hostname       string     `json:"hostname"`
+	StartedAt      time.Time  `json:"started_at"`
+	SampledAt      time.Time  `json:"sampled_at"`
+	RequestCount   uint64     `json:"request_count"`
+	ErrorCount     uint64     `json:"error_count"`
+	DurationSumMS  float64    `json:"duration_sum_ms"`
+	LatencyBuckets [11]uint64 `json:"latency_buckets"`
 }
 
 type Recorder struct {
-	mu            sync.Mutex
-	hostname      string
-	startedAt     time.Time
-	requestCount  uint64
-	errorCount    uint64
-	durationSumNS uint64
+	mu             sync.Mutex
+	hostname       string
+	startedAt      time.Time
+	requestCount   uint64
+	errorCount     uint64
+	durationSumNS  uint64
+	latencyBuckets [11]uint64
 }
 
 func NewRecorder(hostname string) *Recorder {
@@ -35,6 +37,7 @@ func (r *Recorder) Snapshot() Snapshot {
 	return Snapshot{
 		Hostname: r.hostname, StartedAt: r.startedAt, SampledAt: time.Now().UTC(), RequestCount: r.requestCount,
 		ErrorCount: r.errorCount, DurationSumMS: float64(r.durationSumNS) / 1e6,
+		LatencyBuckets: r.latencyBuckets,
 	}
 }
 
@@ -55,6 +58,7 @@ func (r *Recorder) Wrap(next http.Handler) http.Handler {
 			r.errorCount++
 		}
 		r.durationSumNS += uint64(duration.Nanoseconds())
+		r.latencyBuckets[LatencyBucket(duration.Seconds()*1000)]++
 		r.mu.Unlock()
 	})
 }
