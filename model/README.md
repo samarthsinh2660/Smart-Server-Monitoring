@@ -54,6 +54,16 @@ Pooled across the five reported groups (629,280 windows), observed precision cha
 
 The [quality audit](experiments.md) also checked a 95%-precision threshold and XGBoost challengers. The strict threshold missed most surges and lost its high precision on unseen functions. It is **not deployed** as an alert or scaling rule.
 
+### Independent Huawei trace
+
+The user supplied Huawei's [2023 public serverless trace](https://github.com/sir-lab/data-release/blob/main/README_data_release_2023.md) under ignored `data/public_dataset.zip`. The frozen Azure-trained model achieved **39.32% precision and 62.93% recall** on its 26 days. This dataset includes all function triggers and does not identify HTTP functions. Blank request cells are treated as zero. The full [external report](artifacts/huawei_external_report.json) includes daily results and hashes. Reproduce it with:
+
+```sh
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=2 python -m model.evaluate_huawei
+```
+
+A Huawei-only candidate improved its later-day Huawei result but lost substantial recall on Azure, so the active demo artifact remains the Azure-trained model. [The experiment log](experiments.md) has both comparisons.
+
 Reproduce the cross-function audit without retraining:
 
 ```sh
