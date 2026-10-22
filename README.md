@@ -19,6 +19,7 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `cmd/controller/` | Raspberry Pi | Controller and HTTP API entry point |
 | `cmd/agent/` | Both laptops | Metrics agent entry point |
 | `cmd/demoapp/` | Both laptops | Stateless application entry point |
+| `demo/traffic-lab/` | Development laptop | Bounded traffic generator for dashboard demonstrations |
 | `model/` | Development laptop and later Pi | Python training, evaluation, artifact, and local inference service |
 | `internal/controller/` | Raspberry Pi | Metrics polling and independent app health checks; later, scaling decisions |
 | `internal/metrics/` | Pi and laptops | Metrics collection and transport |
@@ -30,11 +31,11 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `config/example.yaml` | Raspberry Pi | Example topology and policy values |
 | `deploy/` | Pi and laptops | HAProxy, Docker, and systemd setup |
 
-The Go agent can read live Linux laptop metrics. The Go controller polls one agent every five seconds and stores samples locally. Scaling and physical hardware integration remain future phases.
+The Go agent can read live Linux laptop metrics. The Go controller polls one agent every five seconds and stores samples locally. [Traffic Lab](demo/traffic-lab/README.md) provides dashboard controls for repeatable load demonstrations. Scaling and physical hardware integration remain future phases.
 
 ## Run the laptop prototype
 
-You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's SQLite driver. From the repository root, start the agent, demo app, and controller with one command:
+You need a Linux laptop, Go 1.22 or newer, and a C compiler for the controller's SQLite driver. From the repository root, start the agent, demo app, Traffic Lab, and controller with one command:
 
 ```sh
 ./start-backend.sh
@@ -61,7 +62,7 @@ curl 'http://127.0.0.1:8080/api/traffic?limit=10'
 curl 'http://127.0.0.1:8080/api/events?limit=10'
 ```
 
-The status response should contain `"metrics_available":true` and `"app_health":{"status":"healthy",...}`. `"state":"UNCONFIGURED"` and `"hardware_ready":false` are expected until the Pi and wake/routing hardware are connected. Sample times are UTC; network byte values are cumulative counters. `/api/metrics` returns newest samples first, and `/api/metrics/latest` returns the newest one. The dashboard shows current readings, recent charts, health, and events: run `npm ci` once in `web/`, then `npm run dev` there and open `http://127.0.0.1:3000`.
+The status response should contain `"metrics_available":true` and `"app_health":{"status":"healthy",...}`. `"state":"UNCONFIGURED"` and `"hardware_ready":false` are expected until the Pi and wake/routing hardware are connected. Sample times are UTC; network byte values are cumulative counters. `/api/metrics` returns newest samples first, and `/api/metrics/latest` returns the newest one. The dashboard shows current readings, recent charts, health, events, and Traffic Lab controls: run `npm ci` once in `web/`, then `npm run dev` there and open `http://127.0.0.1:3000`.
 
 `/api/traffic` records app request counts, HTTP 4xx/5xx counts, request rate, error percentage, average response time, and an interval p95 latency estimate from bounded histogram buckets. The first sample has no rates because it needs a previous reading. Generate requests after the controller has run for five seconds, then read `/api/traffic` again. The demo app's `/health` and `/stats` probes are excluded from traffic counts. `/api/events` lists changes in app health, metrics availability, and traffic-stats availability; it is stored in the same SQLite file. To exercise traffic, run this in the fourth terminal:
 

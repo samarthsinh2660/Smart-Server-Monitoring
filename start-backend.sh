@@ -6,6 +6,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 mkdir -p bin
 go build -o bin/agent ./cmd/agent
 go build -o bin/demoapp ./cmd/demoapp
+go build -o bin/traffic-lab ./demo/traffic-lab
 CGO_ENABLED=1 go build -o bin/controller ./cmd/controller
 
 pids=()
@@ -26,6 +27,8 @@ trap 'exit 143' TERM
 pids+=("$!")
 ./bin/demoapp &
 pids+=("$!")
+./bin/traffic-lab &
+pids+=("$!")
 ./bin/controller &
 pids+=("$!")
 
@@ -37,9 +40,9 @@ if [[ -f "$model_artifact" ]]; then
   fi
   python3 -m model.serve "${model_args[@]}" &
   pids+=("$!")
-  echo "Agent, demo app, controller, and Python model started. Press Ctrl+C to stop all."
+  echo "Agent, demo app, Traffic Lab, controller, and Python model started. Press Ctrl+C to stop all."
 else
-  echo "Agent, demo app, and controller started. Python model artifact not found at $model_artifact."
+  echo "Agent, demo app, Traffic Lab, and controller started. Python model artifact not found at $model_artifact."
 fi
 if wait -n "${pids[@]}"; then
   echo "A backend service stopped; stopping the others."

@@ -1,6 +1,7 @@
 import { HistoryChart } from "./history-chart";
 import { readEvents, readMetrics, readPrediction, readStatus, readTraffic } from "./lib/controller";
 import { RefreshTicker } from "./refresh-ticker";
+import { TrafficLab } from "./traffic-lab";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ export default async function Home() {
             </div>
             <p className="panel-note">Charts show saved history. Current values disappear when their source is unavailable.</p>
           </section>
+          <TrafficLab />
         </div>
 
         <div className="side-column">

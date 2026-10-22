@@ -79,7 +79,7 @@ The current laptop prototype collects and persists metrics for one agent, checks
 
 ## Phase 6 — Build the operator dashboard
 
-The current Next.js dashboard already shows live laptop and app readings, three recent trends, health, and controller events. Proxy targets, alerts, manual actions, and full activation-state views remain pending.
+The current Next.js dashboard already shows live laptop and app readings, three recent trends, health, controller events, and controls for the separate bounded Traffic Lab generator. Proxy targets, alerts, manual standby actions, and full activation-state views remain pending.
 
 - Use Next.js App Router with TypeScript, Tailwind CSS, and Recharts for server cards, metrics charts, current state, and the event timeline.
 - Have Next.js server-side code call the private Go API. Let the browser poll dashboard routes for current data; keep scaling decisions in Go.
