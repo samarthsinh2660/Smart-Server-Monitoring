@@ -1,66 +1,286 @@
 {
-  "dataset": "Microsoft Azure Functions Trace 2019, real HTTP invocation counts",
-  "method": "past-only 60-minute features; Python histogram gradient boosting; isotonic probability calibration",
-  "target": "maximum request count in next two minutes; separate surge indicator",
-  "surge_definition": "future two-minute peak >= max(20 RPM, 1.5 x previous five-minute mean)",
-  "sample_percent": 10,
-  "split_days": {
-    "training": [
-      1,
-      2,
-      3,
-      4,
-      5,
-      6,
-      7,
-      8,
-      9,
-      10
-    ],
-    "validation": [
-      11,
-      12
-    ],
-    "test": [
-      13,
-      14
-    ]
+  "source": "Azure Functions Trace 2019, real HTTP invocation counts",
+  "current_artifact_sha256": "96aad3eaa664f513872af394990d5eba26c0211d62e6956b28b5109f4196f16a",
+  "previous_artifact_sha256": "7544932ea531dae5f1d81ff2db558222ef8e463652d7184407dbb862bb34732f",
+  "training_days": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "training_function_hash_bucket": [
+    0,
+    40
+  ],
+  "validation_days": [
+    11,
+    12
+  ],
+  "validation_function_hash_bucket": [
+    40,
+    50
+  ],
+  "test_days": [
+    13,
+    14
+  ],
+  "validation_recall_target": 0.6,
+  "current_threshold": 0.2216713183883507,
+  "validation": {
+    "windows": 167256,
+    "current": {
+      "events": 4118,
+      "alerts": 6148,
+      "true_positive": 2471,
+      "true_negative": 159461,
+      "false_positive": 3677,
+      "false_negative": 1647,
+      "false_alerts": 3677,
+      "missed_events": 1647,
+      "precision": 0.40191932335718933,
+      "recall": 0.6000485672656629,
+      "f1": 0.48139489577245276,
+      "accuracy": 0.9681685559860334,
+      "balanced_accuracy": 0.7887546836622543,
+      "no_surge_baseline_accuracy": 0.975379059645095,
+      "average_precision": 0.45590687005374014
+    },
+    "previous": {
+      "events": 4118,
+      "alerts": 5871,
+      "true_positive": 2462,
+      "true_negative": 159729,
+      "false_positive": 3409,
+      "false_negative": 1656,
+      "false_alerts": 3409,
+      "missed_events": 1656,
+      "precision": 0.4193493442343723,
+      "recall": 0.5978630403108305,
+      "f1": 0.4929422364601061,
+      "accuracy": 0.9697170804036925,
+      "balanced_accuracy": 0.7884833106640643,
+      "no_surge_baseline_accuracy": 0.975379059645095,
+      "average_precision": 0.44556040145313613
+    }
   },
-  "training_windows": 763416,
-  "validation_windows": 156492,
-  "test_windows": 125856,
-  "function_days": {
-    "training": 2766,
-    "validation": 567,
-    "test": 456
-  },
-  "forecast_blend": 0.6000000000000001,
-  "residual_p90_log": 0.6338364912499073,
-  "classifier_threshold": 0.26999999999999996,
-  "test_forecast_mae_rpm": 3.884466913540984,
-  "test_persistence_mae_rpm": 4.309393405914307,
-  "test_upper_coverage": 0.9018481439105009,
-  "test_surge": {
-    "events": 2603,
-    "alerts": 3924,
-    "false_alerts": 2167,
-    "missed_events": 846,
-    "precision": 0.4477573904179409,
-    "recall": 0.6749903956972724,
-    "average_precision": 0.5770202791217213,
-    "true_positive": 1757,
-    "true_negative": 121086,
-    "false_positive": 2167,
-    "false_negative": 846,
-    "f1": 0.5383790409070016,
-    "accuracy": 0.9760599415204678,
-    "balanced_accuracy": 0.8287043367742607,
-    "no_surge_baseline_accuracy": 0.9793176328502415
-  },
-  "test_persistence_surge": {
-    "precision": 0.21957671957671956,
-    "recall": 0.09565885516711486
+  "test_function_buckets": {
+    "50-60": {
+      "windows": 125856,
+      "current": {
+        "events": 3565,
+        "alerts": 4873,
+        "true_positive": 2579,
+        "true_negative": 119997,
+        "false_positive": 2294,
+        "false_negative": 986,
+        "false_alerts": 2294,
+        "missed_events": 986,
+        "precision": 0.5292427662630823,
+        "recall": 0.723422159887798,
+        "f1": 0.6112822943825551,
+        "accuracy": 0.9739384693618103,
+        "balanced_accuracy": 0.8523318124589656,
+        "no_surge_baseline_accuracy": 0.9716739766081871,
+        "average_precision": 0.7276164127764478
+      },
+      "previous": {
+        "events": 3565,
+        "alerts": 4853,
+        "true_positive": 2555,
+        "true_negative": 119993,
+        "false_positive": 2298,
+        "false_negative": 1010,
+        "false_alerts": 2298,
+        "missed_events": 1010,
+        "precision": 0.5264784669276736,
+        "recall": 0.7166900420757363,
+        "f1": 0.607032549299121,
+        "accuracy": 0.9737159928807526,
+        "balanced_accuracy": 0.8489493991196566,
+        "no_surge_baseline_accuracy": 0.9716739766081871,
+        "average_precision": 0.7245939854471729
+      }
+    },
+    "60-70": {
+      "windows": 111228,
+      "current": {
+        "events": 2010,
+        "alerts": 2890,
+        "true_positive": 1192,
+        "true_negative": 107520,
+        "false_positive": 1698,
+        "false_negative": 818,
+        "false_alerts": 1698,
+        "missed_events": 818,
+        "precision": 0.4124567474048443,
+        "recall": 0.5930348258706468,
+        "f1": 0.4865306122448979,
+        "accuracy": 0.9773797964541302,
+        "balanced_accuracy": 0.788743968997511,
+        "no_surge_baseline_accuracy": 0.9819290106807639,
+        "average_precision": 0.5428020223930514
+      },
+      "previous": {
+        "events": 2010,
+        "alerts": 2821,
+        "true_positive": 1161,
+        "true_negative": 107558,
+        "false_positive": 1660,
+        "false_negative": 849,
+        "false_alerts": 1660,
+        "missed_events": 849,
+        "precision": 0.4115561857497341,
+        "recall": 0.5776119402985075,
+        "f1": 0.4806458290209066,
+        "accuracy": 0.9774427302477794,
+        "balanced_accuracy": 0.7812064902100495,
+        "no_surge_baseline_accuracy": 0.9819290106807639,
+        "average_precision": 0.5327191485406805
+      }
+    },
+    "70-80": {
+      "windows": 134412,
+      "current": {
+        "events": 3046,
+        "alerts": 3839,
+        "true_positive": 1847,
+        "true_negative": 129374,
+        "false_positive": 1992,
+        "false_negative": 1199,
+        "false_alerts": 1992,
+        "missed_events": 1199,
+        "precision": 0.48111487366501693,
+        "recall": 0.6063690085357847,
+        "f1": 0.5365286855482935,
+        "accuracy": 0.9762595601583192,
+        "balanced_accuracy": 0.7956026337686763,
+        "no_surge_baseline_accuracy": 0.9773383328869446,
+        "average_precision": 0.6093727187754832
+      },
+      "previous": {
+        "events": 3046,
+        "alerts": 3799,
+        "true_positive": 1869,
+        "true_negative": 129436,
+        "false_positive": 1930,
+        "false_negative": 1177,
+        "false_alerts": 1930,
+        "missed_events": 1177,
+        "precision": 0.4919715714661753,
+        "recall": 0.613591595535128,
+        "f1": 0.5460920379839299,
+        "accuracy": 0.9768845043597297,
+        "balanced_accuracy": 0.7994499091814763,
+        "no_surge_baseline_accuracy": 0.9773383328869446,
+        "average_precision": 0.5726966597754592
+      }
+    },
+    "80-90": {
+      "windows": 127236,
+      "current": {
+        "events": 2996,
+        "alerts": 4354,
+        "true_positive": 1863,
+        "true_negative": 121749,
+        "false_positive": 2491,
+        "false_negative": 1133,
+        "false_alerts": 2491,
+        "missed_events": 1133,
+        "precision": 0.42788240698208546,
+        "recall": 0.6218291054739653,
+        "f1": 0.5069387755102042,
+        "accuracy": 0.9715174950485712,
+        "balanced_accuracy": 0.8008896010306079,
+        "no_surge_baseline_accuracy": 0.9764532050677481,
+        "average_precision": 0.5624780898387473
+      },
+      "previous": {
+        "events": 2996,
+        "alerts": 4359,
+        "true_positive": 1863,
+        "true_negative": 121744,
+        "false_positive": 2496,
+        "false_negative": 1133,
+        "false_alerts": 2496,
+        "missed_events": 1133,
+        "precision": 0.42739160357880246,
+        "recall": 0.6218291054739653,
+        "f1": 0.5065941536369817,
+        "accuracy": 0.9714781979942784,
+        "balanced_accuracy": 0.8008694786867573,
+        "no_surge_baseline_accuracy": 0.9764532050677481,
+        "average_precision": 0.5361500692521212
+      }
+    },
+    "90-100": {
+      "windows": 130548,
+      "current": {
+        "events": 3034,
+        "alerts": 4586,
+        "true_positive": 1929,
+        "true_negative": 124857,
+        "false_positive": 2657,
+        "false_negative": 1105,
+        "false_alerts": 2657,
+        "missed_events": 1105,
+        "precision": 0.4206279982555604,
+        "recall": 0.6357943309162821,
+        "f1": 0.5062992125984251,
+        "accuracy": 0.9711830131445905,
+        "balanced_accuracy": 0.8074787016031918,
+        "no_surge_baseline_accuracy": 0.9767595060820541,
+        "average_precision": 0.5803479460515467
+      },
+      "previous": {
+        "events": 3034,
+        "alerts": 4575,
+        "true_positive": 1849,
+        "true_negative": 124788,
+        "false_positive": 2726,
+        "false_negative": 1185,
+        "false_alerts": 2726,
+        "missed_events": 1185,
+        "precision": 0.40415300546448085,
+        "recall": 0.6094264996704021,
+        "f1": 0.48600341700617694,
+        "accuracy": 0.9700416704966756,
+        "balanced_accuracy": 0.7940242274533449,
+        "no_surge_baseline_accuracy": 0.9767595060820541,
+        "average_precision": 0.5693412131065178
+      }
+    }
   },
   "operational_scale_ready": false,
-  "operational_limit": "Azure invocation counts contain no target laptop capacity, latency, or second-server benefit labels"
+  "pooled_test_buckets": {
+    "current": {
+      "windows": 629280,
+      "true_positive": 9410,
+      "true_negative": 603497,
+      "false_positive": 11132,
+      "false_negative": 5241,
+      "precision": 0.45808587284587676,
+      "recall": 0.6422769776807044,
+      "f1": 0.5347654363083568,
+      "accuracy": 0.9739813755403001,
+      "no_surge_baseline_accuracy": 0.9767178362573099
+    },
+    "previous": {
+      "windows": 629280,
+      "true_positive": 9297,
+      "true_negative": 603519,
+      "false_positive": 11110,
+      "false_negative": 5354,
+      "precision": 0.4555789680011761,
+      "recall": 0.6345641935704047,
+      "f1": 0.5303782303611159,
+      "accuracy": 0.9738367658276125,
+      "no_surge_baseline_accuracy": 0.9767178362573099
+    }
+  }
 }

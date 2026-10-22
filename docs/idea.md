@@ -120,7 +120,7 @@ A small model on the Raspberry Pi can watch recent trends and wake Laptop 2 **be
 
 ### Model and inputs
 
-Use the small **Python serverless traffic model** in `model/`. It is trained on real Azure Functions 2019 HTTP invocation counts and predicts the next two-minute request peak and surge probability. It runs as a local service; the Go controller forwards its output. The forecast horizon must eventually be compared with measured WoL-to-healthy time. The model artifact is about 143 KB, but actual Pi memory and scoring time still need measurement.
+Use the small **Python serverless traffic model** in `model/`. It is trained on real Azure Functions 2019 HTTP invocation counts and predicts the next two-minute request peak and surge probability. It runs as a local service; the Go controller forwards its output. The forecast horizon must eventually be compared with measured WoL-to-healthy time. The active model artifact is about 193 KB. Laptop inference was measured, but Pi memory and scoring time still need measurement on the selected board.
 
 The [Python model guide](../model/README.md) records the dataset, research paper, author implementation, method adaptation, and held-out results. The [decision boundary](ai-model.md) lists checks required before prediction can trigger physical activation.
 

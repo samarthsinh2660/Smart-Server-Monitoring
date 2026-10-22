@@ -79,6 +79,8 @@ The invalid `duration_ms=0` request returns HTTP 400 and increments the app erro
 
 The [model guide](model/README.md) documents the real Azure Functions data, paper and author implementation that inspired the method, training command, held-out results, and limitations. The trained artifact is in `model/artifacts/`. Install its pinned Python dependencies, then start the backend:
 
+The active v2 artifact is about 193 KB and needs NumPy, SciPy, scikit-learn, and joblib for scoring. Its latest retraining produced small pooled precision and recall gains over the previous v2 on inspected Azure groups; an independent workload is still needed to confirm them. Raspberry Pi deployment requires a 64-bit OS with compatible Python packages and a benchmark on the actual board; current timings are from this laptop.
+
 ```sh
 python3 -m pip install -r model/requirements.txt
 ./start-backend.sh

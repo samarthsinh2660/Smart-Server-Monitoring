@@ -1,0 +1,49 @@
+{
+  "source": "Azure Functions Trace 2019, real HTTP invocation counts",
+  "training_days": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "validation_days": [
+    11,
+    12
+  ],
+  "training_function_hash_bucket": [
+    0,
+    40
+  ],
+  "validation_function_hash_bucket": [
+    40,
+    50
+  ],
+  "training_windows": 3256248,
+  "validation_windows": 167256,
+  "validation_recall_target": 0.6,
+  "classifier_threshold": 0.2216713183883507,
+  "validation_surge": {
+    "events": 4118,
+    "alerts": 6148,
+    "true_positive": 2471,
+    "true_negative": 159461,
+    "false_positive": 3677,
+    "false_negative": 1647,
+    "false_alerts": 3677,
+    "missed_events": 1647,
+    "precision": 0.40191932335718933,
+    "recall": 0.6000485672656629,
+    "f1": 0.48139489577245276,
+    "accuracy": 0.9681685559860334,
+    "balanced_accuracy": 0.7887546836622543,
+    "no_surge_baseline_accuracy": 0.975379059645095,
+    "average_precision": 0.45590687005374014
+  },
+  "operational_scale_ready": false
+}

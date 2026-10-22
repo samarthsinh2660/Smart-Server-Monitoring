@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import unittest
 
 import numpy as np
 
 from model.features import make_features, make_targets
-from model.predict import score
+from model.features_v2 import FEATURE_NAMES as V2_FEATURE_NAMES, make_features as make_features_v2
+from model.calibration import calibrated_probability
+from model.predict import load_artifact, score
 from model.serve import counts_from_traffic
+from model.train import selected
 
 
 class ConstantForecaster:
@@ -26,6 +30,11 @@ class IdentityCalibrator:
 
 
 class FeatureTests(unittest.TestCase):
+    def test_function_buckets_are_disjoint(self) -> None:
+        for index in range(100):
+            function_hash = f"function-{index}"
+            self.assertEqual(sum(selected(function_hash, 10, start) for start in range(0, 100, 10)), 1)
+
     def test_features_do_not_see_future(self) -> None:
         counts = np.full(70, 10)
         before = make_features(counts, np.array([59]))
@@ -39,6 +48,14 @@ class FeatureTests(unittest.TestCase):
     def test_requires_complete_history(self) -> None:
         with self.assertRaises(ValueError):
             make_features(np.ones(60), np.array([58]))
+
+    def test_richer_features_do_not_see_future(self) -> None:
+        counts = np.full(70, 10)
+        before = make_features_v2(counts, np.array([59]))
+        counts[60:62] = 1000
+        after = make_features_v2(counts, np.array([59]))
+        np.testing.assert_array_equal(before, after)
+        self.assertEqual(before.shape[1], len(V2_FEATURE_NAMES))
 
 
 class TrafficTests(unittest.TestCase):
@@ -60,6 +77,23 @@ class TrafficTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_v2_offline_score_matches_vectorized_model(self) -> None:
+        artifact = load_artifact(Path("model/artifacts/serverless_model.joblib"))
+        counts = np.full(60, 10)
+        minute_of_day = 600
+        features = make_features_v2(counts, np.array([59]))
+        phase = 2 * np.pi * minute_of_day / 1440
+        features[0, 9:11] = (np.sin(phase), np.cos(phase))
+        raw = artifact["classifier"].predict_proba(features)[:, 1]
+        expected = float(calibrated_probability(artifact["calibrator"], raw)[0])
+        result = score(artifact, counts, minute_of_day)
+        self.assertEqual(result["model_version"], "serverless-demand-v2")
+        self.assertAlmostEqual(result["risk_score"], expected)
+        previous = load_artifact(Path("model/artifacts/serverless_model_v1.joblib"))
+        previous_result = score(previous, counts, minute_of_day)
+        self.assertAlmostEqual(result["forecast_rpm"], previous_result["forecast_rpm"])
+        self.assertAlmostEqual(result["upper_rpm"], previous_result["upper_rpm"])
+
     def test_shadow_action_never_marks_operational_ready(self) -> None:
         artifact = {
             "forecaster": ConstantForecaster(),

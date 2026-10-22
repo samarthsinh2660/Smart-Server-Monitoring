@@ -1,0 +1,156 @@
+{
+  "artifact_sha256": "9c1bbdbaea9ed0467b1b744f30dd1e7c2f9ee9cc5d84d37ca5e206a4956c42e2",
+  "source": "Azure Functions Trace 2019, real HTTP invocation counts",
+  "training_days": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "validation_days": [
+    11,
+    12
+  ],
+  "test_days": [
+    13,
+    14
+  ],
+  "standard_threshold": 0.26999999999999996,
+  "strict_threshold_selected_on_validation": 0.7761194029850746,
+  "validation_strict": {
+    "events": 3869,
+    "alerts": 799,
+    "true_positive": 766,
+    "true_negative": 152590,
+    "false_positive": 33,
+    "false_negative": 3103,
+    "false_alerts": 33,
+    "missed_events": 3103,
+    "precision": 0.9586983729662077,
+    "recall": 0.19798397518738692,
+    "f1": 0.3281919451585262,
+    "accuracy": 0.9799606369654679,
+    "balanced_accuracy": 0.5988838780689167,
+    "no_surge_baseline_accuracy": 0.9752766914602663,
+    "average_precision": 0.5822351980980028
+  },
+  "test_function_buckets": {
+    "0-10": {
+      "windows": 125856,
+      "standard": {
+        "events": 2603,
+        "alerts": 3924,
+        "true_positive": 1757,
+        "true_negative": 121086,
+        "false_positive": 2167,
+        "false_negative": 846,
+        "false_alerts": 2167,
+        "missed_events": 846,
+        "precision": 0.4477573904179409,
+        "recall": 0.6749903956972724,
+        "f1": 0.5383790409070016,
+        "accuracy": 0.9760599415204678,
+        "balanced_accuracy": 0.8287043367742607,
+        "no_surge_baseline_accuracy": 0.9793176328502415,
+        "average_precision": 0.5770202791217213
+      },
+      "strict": {
+        "events": 2603,
+        "alerts": 733,
+        "true_positive": 700,
+        "true_negative": 123220,
+        "false_positive": 33,
+        "false_negative": 1903,
+        "false_alerts": 33,
+        "missed_events": 1903,
+        "precision": 0.9549795361527967,
+        "recall": 0.26892047637341526,
+        "f1": 0.41966426858513184,
+        "accuracy": 0.9846173404525808,
+        "balanced_accuracy": 0.6343263672058795,
+        "no_surge_baseline_accuracy": 0.9793176328502415,
+        "average_precision": 0.5770202791217213
+      }
+    },
+    "30-40": {
+      "windows": 162840,
+      "standard": {
+        "events": 5073,
+        "alerts": 6420,
+        "true_positive": 2479,
+        "true_negative": 153826,
+        "false_positive": 3941,
+        "false_negative": 2594,
+        "false_alerts": 3941,
+        "missed_events": 2594,
+        "precision": 0.38613707165109035,
+        "recall": 0.4886654839345555,
+        "f1": 0.43139302183938055,
+        "accuracy": 0.9598685826578236,
+        "balanced_accuracy": 0.7318428042743509,
+        "no_surge_baseline_accuracy": 0.9688467207074429,
+        "average_precision": 0.37355828242586064
+      },
+      "strict": {
+        "events": 5073,
+        "alerts": 568,
+        "true_positive": 337,
+        "true_negative": 157536,
+        "false_positive": 231,
+        "false_negative": 4736,
+        "false_alerts": 231,
+        "missed_events": 4736,
+        "precision": 0.5933098591549296,
+        "recall": 0.0664301202444313,
+        "f1": 0.11948236128346039,
+        "accuracy": 0.9694976664210267,
+        "balanced_accuracy": 0.5324829678595752,
+        "no_surge_baseline_accuracy": 0.9688467207074429,
+        "average_precision": 0.37355828242586064
+      }
+    },
+    "40-50": {
+      "windows": 131652,
+      "standard": {
+        "events": 3016,
+        "alerts": 3675,
+        "true_positive": 1404,
+        "true_negative": 126365,
+        "false_positive": 2271,
+        "false_negative": 1612,
+        "false_alerts": 2271,
+        "missed_events": 1612,
+        "precision": 0.3820408163265306,
+        "recall": 0.46551724137931033,
+        "f1": 0.4196682110297414,
+        "accuracy": 0.9705055753045909,
+        "balanced_accuracy": 0.7239313872557798,
+        "no_surge_baseline_accuracy": 0.9770911190107252,
+        "average_precision": 0.33797343612769026
+      },
+      "strict": {
+        "events": 3016,
+        "alerts": 84,
+        "true_positive": 58,
+        "true_negative": 128610,
+        "false_positive": 26,
+        "false_negative": 2958,
+        "false_alerts": 26,
+        "missed_events": 2958,
+        "precision": 0.6904761904761905,
+        "recall": 0.019230769230769232,
+        "f1": 0.03741935483870968,
+        "accuracy": 0.9773341840610094,
+        "balanced_accuracy": 0.5095143242590302,
+        "no_surge_baseline_accuracy": 0.9770911190107252,
+        "average_precision": 0.33797343612769026
+      }
+    }
+  }
+}

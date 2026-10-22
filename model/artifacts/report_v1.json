@@ -1,0 +1,66 @@
+{
+  "dataset": "Microsoft Azure Functions Trace 2019, real HTTP invocation counts",
+  "method": "past-only 60-minute features; Python histogram gradient boosting; isotonic probability calibration",
+  "target": "maximum request count in next two minutes; separate surge indicator",
+  "surge_definition": "future two-minute peak >= max(20 RPM, 1.5 x previous five-minute mean)",
+  "sample_percent": 10,
+  "split_days": {
+    "training": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "validation": [
+      11,
+      12
+    ],
+    "test": [
+      13,
+      14
+    ]
+  },
+  "training_windows": 763416,
+  "validation_windows": 156492,
+  "test_windows": 125856,
+  "function_days": {
+    "training": 2766,
+    "validation": 567,
+    "test": 456
+  },
+  "forecast_blend": 0.6000000000000001,
+  "residual_p90_log": 0.6338364912499073,
+  "classifier_threshold": 0.26999999999999996,
+  "test_forecast_mae_rpm": 3.884466913540984,
+  "test_persistence_mae_rpm": 4.309393405914307,
+  "test_upper_coverage": 0.9018481439105009,
+  "test_surge": {
+    "events": 2603,
+    "alerts": 3924,
+    "false_alerts": 2167,
+    "missed_events": 846,
+    "precision": 0.4477573904179409,
+    "recall": 0.6749903956972724,
+    "average_precision": 0.5770202791217213,
+    "true_positive": 1757,
+    "true_negative": 121086,
+    "false_positive": 2167,
+    "false_negative": 846,
+    "f1": 0.5383790409070016,
+    "accuracy": 0.9760599415204678,
+    "balanced_accuracy": 0.8287043367742607,
+    "no_surge_baseline_accuracy": 0.9793176328502415
+  },
+  "test_persistence_surge": {
+    "precision": 0.21957671957671956,
+    "recall": 0.09565885516711486
+  },
+  "operational_scale_ready": false,
+  "operational_limit": "Azure invocation counts contain no target laptop capacity, latency, or second-server benefit labels"
+}

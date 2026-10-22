@@ -10,12 +10,25 @@ import joblib
 import numpy as np
 
 from model.features import FEATURE_NAMES, HISTORY_MINUTES, make_features
+from model.features_v2 import FEATURE_NAMES as V2_FEATURE_NAMES, make_features as make_features_v2
+from model.calibration import calibrated_probability
 
 
 def load_artifact(path: Path) -> dict:
     # joblib uses pickle. Only load artifacts produced by this project and trusted locally.
     artifact = joblib.load(path)
-    if artifact.get("format") != "serverless-demand-v1" or tuple(artifact.get("feature_names", ())) != FEATURE_NAMES:
+    version = artifact.get("format")
+    if version == "serverless-demand-v1":
+        compatible = tuple(artifact.get("feature_names", ())) == FEATURE_NAMES
+    elif version == "serverless-demand-v2":
+        compatible = (
+            tuple(artifact.get("feature_names", ())) == V2_FEATURE_NAMES
+            and tuple(artifact.get("forecast_feature_names", ())) == FEATURE_NAMES
+            and artifact.get("calibration_kind") == "sigmoid_logit"
+        )
+    else:
+        compatible = False
+    if not compatible:
         raise ValueError("incompatible serverless model artifact")
     return artifact
 
@@ -28,15 +41,17 @@ def score(artifact: dict, counts: list[int] | np.ndarray, minute_of_day: int, ca
     # The training features use time of day only for the last minute. Represent
     # the preceding 59 positions with matching modulo-1440 minute indices.
     minute = HISTORY_MINUTES - 1
-    x = make_features(values, np.array([minute]))
+    v2 = artifact["format"] == "serverless-demand-v2"
+    x = make_features_v2(values, np.array([minute])) if v2 else make_features(values, np.array([minute]))
     phase = 2 * np.pi * minute_of_day / 1440
-    x[0, -2:] = (np.sin(phase), np.cos(phase))
-    raw = max(0.0, float(np.expm1(max(0, artifact["forecaster"].predict(x)[0]))))
+    x[0, len(FEATURE_NAMES) - 2:len(FEATURE_NAMES)] = (np.sin(phase), np.cos(phase))
+    forecast_x = x[:, :len(FEATURE_NAMES)] if v2 else x
+    raw = max(0.0, float(np.expm1(max(0, artifact["forecaster"].predict(forecast_x)[0]))))
     blend = float(artifact["forecast_blend"])
     forecast = blend * raw + (1 - blend) * float(values[-1])
     upper = float(np.expm1(np.log1p(forecast) + artifact["residual_p90_log"]))
     uncalibrated = artifact["classifier"].predict_proba(x)[:, 1]
-    risk = float(artifact["calibrator"].predict(uncalibrated)[0])
+    risk = float(calibrated_probability(artifact["calibrator"], uncalibrated)[0]) if v2 else float(artifact["calibrator"].predict(uncalibrated)[0])
     if capacity_rpm is not None and (not np.isfinite(capacity_rpm) or capacity_rpm <= 0):
         raise ValueError("capacity_rpm must be a positive finite number")
     shadow_action = "capacity_unconfigured"

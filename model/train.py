@@ -10,6 +10,7 @@ import csv
 import hashlib
 import json
 from pathlib import Path
+from typing import Callable
 
 import joblib
 import numpy as np
@@ -24,12 +25,20 @@ VALIDATION_DAYS = (11, 12)
 TEST_DAYS = (13, 14)
 
 
-def selected(function_hash: str, percent: int) -> bool:
+def selected(function_hash: str, percent: int, bucket_start: int = 0) -> bool:
     digest = hashlib.blake2b(function_hash.encode(), digest_size=8).digest()
-    return int.from_bytes(digest, "big") % 100 < percent
+    return bucket_start <= int.from_bytes(digest, "big") % 100 < bucket_start + percent
 
 
-def load_days(input_dir: Path, days: tuple[int, ...], percent: int) -> dict:
+def load_days(
+    input_dir: Path,
+    days: tuple[int, ...],
+    percent: int,
+    bucket_start: int = 0,
+    feature_fn: Callable[[np.ndarray, np.ndarray], np.ndarray] = make_features,
+) -> dict:
+    if not 1 <= percent <= 100 or not 0 <= bucket_start <= 100 - percent:
+        raise ValueError("invalid function hash bucket range")
     features, peaks, surges, latest = [], [], [], []
     function_days = 0
     for day in days:
@@ -44,7 +53,7 @@ def load_days(input_dir: Path, days: tuple[int, ...], percent: int) -> dict:
             for row in reader:
                 if len(row) != 1444:
                     raise ValueError(f"incorrect field count in {path}")
-                if row[3] != "http" or not selected(row[2], percent):
+                if row[3] != "http" or not selected(row[2], percent, bucket_start):
                     continue
                 counts = np.fromiter((int(value) for value in row[4:]), dtype=np.int32, count=1440)
                 if np.any(counts < 0):
@@ -53,7 +62,7 @@ def load_days(input_dir: Path, days: tuple[int, ...], percent: int) -> dict:
                     continue
                 function_days += 1
                 minutes = np.arange(HISTORY_MINUTES - 1, 1438, 5)
-                x = make_features(counts, minutes)
+                x = feature_fn(counts, minutes)
                 peak, surge = make_targets(counts, minutes)
                 features.append(x)
                 peaks.append(peak)
