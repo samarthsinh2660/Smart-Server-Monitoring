@@ -1,0 +1,20 @@
+[Unit]
+Description=Smart Server Pi controller and inference
+Wants=network-online.target
+After=network-online.target haproxy.service
+
+[Service]
+Type=simple
+User=smartserver
+Group=haproxy
+WorkingDirectory=/opt/smartserver
+EnvironmentFile=/opt/smartserver/config/pi.env
+Environment=MODEL_PYTHON=/opt/smartserver/.venv/bin/python
+Environment=PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash /opt/smartserver/start-pi.sh
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

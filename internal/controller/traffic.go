@@ -17,6 +17,7 @@ import (
 
 // TrafficPoller reads the demo app's cumulative counters and stores interval rates.
 type TrafficPoller struct {
+	ServerID string
 	AppURL   string
 	Client   *http.Client
 	Store    *store.Metrics
@@ -77,7 +78,7 @@ func (p *TrafficPoller) Poll(ctx context.Context) {
 	p.mu.RLock()
 	previous := p.previous
 	p.mu.RUnlock()
-	sample := traffic.Sample{Snapshot: snapshot}
+	sample := traffic.Sample{ServerID: p.ServerID, Snapshot: snapshot}
 	seconds := snapshot.SampledAt.Sub(previous.SampledAt).Seconds()
 	if snapshot.Hostname == previous.Hostname && snapshot.StartedAt.Equal(previous.StartedAt) && seconds > 0 && snapshot.RequestCount >= previous.RequestCount && snapshot.ErrorCount >= previous.ErrorCount && snapshot.DurationSumMS >= previous.DurationSumMS {
 		requests := snapshot.RequestCount - previous.RequestCount

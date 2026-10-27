@@ -4,6 +4,8 @@ This README turns the [project idea](idea.md) into a sequence of deliverables. E
 
 The selected stack is Go for the controller, agents, and demo app; Python for model training and inference; Next.js with TypeScript for the dashboard; HAProxy for routing; and SQLite for metrics and events. The [repository README](../README.md) has the current single-laptop runbook. The Pi, standby laptop, Wake-on-LAN, and final proxy traffic path are still pending.
 
+The revised [Windows wireless deployment design](windows-wireless-deployment.md) places the controller, AI inference, SQLite, and HAProxy on the Raspberry Pi 4 Model B; Windows apps and agents on the laptops; and the dashboard and custom load generator on Laptop 1. Native Windows collection, two-server histories, the 60% warning and 70%/15-second CPU activation policy, proxy control, and launchers are implemented. Software checks and Windows cross-builds pass; the remaining phase gates concern actual device startup, Wi-Fi wake, capacity, and routing. Follow [the setup and test guide](windows-pi-setup.md).
+
 ```mermaid
 flowchart LR
     P0[0. Agree on design] --> P1[1. Prove hardware]
@@ -51,7 +53,7 @@ The [repository README](../README.md) now records the local service entry points
 The demo app now has a bounded workload endpoint, a shared [laptop Compose setup](../deploy/docker/README.md), and an [HAProxy template](../deploy/haproxy/README.md). Device addresses and the measured traffic path are still pending.
 
 - Build one stateless Go demo app with `GET /health`, a workload endpoint, and a response that identifies which laptop served it.
-- Run the same app image on both laptops through Docker Compose; make the standby app start automatically after boot.
+- Build the same Go app for Windows and run it on both laptops; configure unattended Windows startup and confirm resume from the selected sleep state. Keep the existing Docker deployment available as an optional alternative.
 - Configure HAProxy on the Pi as the stable client entry point. Begin with only Laptop 1 active; add Laptop 2 manually after a successful health check.
 - Record the measured interval from WoL to application health, which sets the controller startup timeout and prediction horizon.
 
@@ -61,7 +63,7 @@ The demo app now has a bounded workload endpoint, a shared [laptop Compose setup
 
 The current laptop prototype collects and persists metrics for one agent, checks one demo app, and stores request-rate, average-latency, and status-change history. The remaining work in this phase includes two-laptop support and proxy-level request and latency measurements.
 
-- Run a Go metrics agent on each laptop and collect CPU, RAM, disk, network, uptime, and temperature where supported.
+- Implement Windows collection in the Go metrics agent, run it on each laptop, and collect CPU, RAM, disk, network, uptime, and temperature where supported. Retain the Linux collector for Pi/development use.
 - Have the Pi poll agents and probe each app's `/health` separately. Collect request rate, latency, and error counts from the proxy or app.
 - Store timestamped samples and controller events in SQLite. Expose status, server, metrics, health, and event reads through the Go API.
 - Show stale or missing metrics as unavailable, while keeping application health independent of agent health.
@@ -71,7 +73,7 @@ The current laptop prototype collects and persists metrics for one agent, checks
 ## Phase 5 — Automate scale up and failover
 
 - Implement the documented states: `PRIMARY_ONLY`, `STARTING_STANDBY`, `BOTH_ACTIVE`, `FAILOVER`, and `ACTIVATION_FAILED`.
-- Use the Python model as the only load-based activation signal after measuring request capacity, false wakes, and standby startup time. Treat three failed primary app health probes as a separate failover decision.
+- Warn at 60% primary CPU and activate at 70% continuously for 15 seconds using fresh distinct samples. Reset the hold on a low, missing, failed, repeated, or stale reading. Validate and then permit AI early activation using measured request capacity and wake time; keep CPU activation available when prediction is unavailable. Treat three failed primary app health probes as a separate failover decision.
 - Send WoL once, wait up to the configured startup timeout, and enable the standby in HAProxy only after `/health` succeeds.
 - Remove an unhealthy primary promptly, prevent duplicate activation, record every transition, and provide guarded manual activate, retry, and reset actions.
 
@@ -83,6 +85,7 @@ The current Next.js dashboard already shows live laptop and app readings, three 
 
 - Use Next.js App Router with TypeScript, Tailwind CSS, and Recharts for server cards, metrics charts, current state, and the event timeline.
 - Have Next.js server-side code call the private Go API. Let the browser poll dashboard routes for current data; keep scaling decisions in Go.
+- Host Next.js on Laptop 1 and set `CONTROLLER_API_URL` to the Pi LAN address. Show both server identities, the CPU threshold and hold progress, and whether AI or CPU caused activation. Route the local load generator's requests through the Pi proxy and expose custom rate/unit, concurrency, work duration, and run duration controls.
 - Show active HAProxy targets, application health, stale metrics, alerts, and the reason for the last transition.
 - Protect operator actions in both the dashboard and Go API. Run the Next.js service separately from HAProxy and the Go controller.
 
@@ -95,7 +98,7 @@ The [Python model](../model/README.md) is trained on the supplied real Azure Fun
 - Train and evaluate the small Python workload model directly on real Azure trace days; keep training, calibration, and test days separate.
 - Show surge probability, predicted request rate, model version, and availability in the dashboard.
 - Measure single- and dual-server service capacity, standby startup time, false wakes, and missed overloads before permitting model-guided pre-wake.
-- When the model or inputs are unavailable, show load-based scaling as unavailable. Keep health-failure failover and the standby health gate independent of the model.
+- When the model or traffic inputs are unavailable, show predictive activation as unavailable. Keep fresh-CPU activation, health-failure failover, and the standby health gate independent of the model.
 
 **Done when:** a gradual load run can wake the standby before overload, and a held-out comparison reports lead time, missed overloads, unnecessary wakes, request failures, and Pi inference cost.
 
@@ -111,7 +114,7 @@ The [Python model](../model/README.md) is trained on the supplied real Azure Fun
 ## Phase 9 — Demonstrate and document the result
 
 - Run normal traffic, sustained load, automatic activation, warm failover, cold failover, and failed activation demonstrations.
-- Compare the model-only load policy against a fixed-threshold offline baseline. Report detection time, WoL-to-health time, total activation time, request failures, latency, false wakes, and missed overloads.
+- Compare the combined AI and CPU policy against CPU-only and model-only offline baselines. Report detection time, WoL-to-health time, total activation time, request failures, latency, false wakes, and missed overloads.
 - Write a setup guide with hardware settings, configuration steps, startup commands, reset steps, architecture diagrams, and known limitations.
 - Capture the final dashboard timeline and measurements for the project presentation.
 

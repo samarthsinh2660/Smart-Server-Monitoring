@@ -11,8 +11,8 @@ import (
 
 func (m *Metrics) SaveTraffic(ctx context.Context, sample traffic.Sample) error {
 	_, err := m.db.ExecContext(ctx, `INSERT INTO traffic_samples
-		(hostname, started_at, sampled_at, request_count, error_count, duration_sum_ms, request_rate_per_second, error_rate_percent, avg_latency_ms, p95_latency_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, sample.Hostname, sample.StartedAt.UTC().Format(time.RFC3339Nano), sample.SampledAt.UTC().Format(time.RFC3339Nano), sample.RequestCount, sample.ErrorCount, sample.DurationSumMS, sample.RequestRate, sample.ErrorRate, sample.AvgLatencyMS, sample.P95LatencyMS)
+		(server_id, hostname, started_at, sampled_at, request_count, error_count, duration_sum_ms, request_rate_per_second, error_rate_percent, avg_latency_ms, p95_latency_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, serverID(sample.ServerID), sample.Hostname, sample.StartedAt.UTC().Format(time.RFC3339Nano), sample.SampledAt.UTC().Format(time.RFC3339Nano), sample.RequestCount, sample.ErrorCount, sample.DurationSumMS, sample.RequestRate, sample.ErrorRate, sample.AvgLatencyMS, sample.P95LatencyMS)
 	if err != nil {
 		return fmt.Errorf("save traffic sample: %w", err)
 	}
@@ -20,7 +20,11 @@ func (m *Metrics) SaveTraffic(ctx context.Context, sample traffic.Sample) error 
 }
 
 func (m *Metrics) RecentTraffic(ctx context.Context, limit int) ([]traffic.Sample, error) {
-	rows, err := m.db.QueryContext(ctx, `SELECT hostname, started_at, sampled_at, request_count, error_count, duration_sum_ms, request_rate_per_second, error_rate_percent, avg_latency_ms, p95_latency_ms FROM traffic_samples ORDER BY id DESC LIMIT ?`, limit)
+	return m.RecentTrafficFor(ctx, "primary", limit)
+}
+
+func (m *Metrics) RecentTrafficFor(ctx context.Context, id string, limit int) ([]traffic.Sample, error) {
+	rows, err := m.db.QueryContext(ctx, `SELECT server_id, hostname, started_at, sampled_at, request_count, error_count, duration_sum_ms, request_rate_per_second, error_rate_percent, avg_latency_ms, p95_latency_ms FROM traffic_samples WHERE server_id = ? ORDER BY id DESC LIMIT ?`, serverID(id), limit)
 	if err != nil {
 		return nil, fmt.Errorf("query traffic samples: %w", err)
 	}
@@ -30,7 +34,7 @@ func (m *Metrics) RecentTraffic(ctx context.Context, limit int) ([]traffic.Sampl
 		var sample traffic.Sample
 		var started, timestamp string
 		var rate, errorRate, latency, p95 sql.NullFloat64
-		if err := rows.Scan(&sample.Hostname, &started, &timestamp, &sample.RequestCount, &sample.ErrorCount, &sample.DurationSumMS, &rate, &errorRate, &latency, &p95); err != nil {
+		if err := rows.Scan(&sample.ServerID, &sample.Hostname, &started, &timestamp, &sample.RequestCount, &sample.ErrorCount, &sample.DurationSumMS, &rate, &errorRate, &latency, &p95); err != nil {
 			return nil, fmt.Errorf("scan traffic sample: %w", err)
 		}
 		sample.SampledAt, err = time.Parse(time.RFC3339Nano, timestamp)

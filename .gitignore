@@ -20,6 +20,8 @@ web/*.tsbuildinfo
 .env.*
 !.env.example
 config/local.yaml
+config/*.env
+.logs/
 data/
 *.db
 *.sqlite

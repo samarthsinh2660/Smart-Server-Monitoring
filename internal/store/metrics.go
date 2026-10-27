@@ -62,6 +62,10 @@ func Open(path string) (*Metrics, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateServers(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Metrics{db: db}, nil
 }
 
@@ -69,8 +73,8 @@ func (m *Metrics) Close() error { return m.db.Close() }
 
 func (m *Metrics) Save(ctx context.Context, s metrics.Sample) error {
 	_, err := m.db.ExecContext(ctx, `INSERT INTO metric_samples
-		(hostname, sampled_at, cpu_percent, memory_percent, disk_percent, network_rx_bytes, network_tx_bytes, uptime_seconds, temperature_c)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.Hostname, s.SampledAt.UTC().Format(time.RFC3339Nano), s.CPUPercent, s.MemoryPercent, s.DiskPercent, s.NetworkRXBytes, s.NetworkTXBytes, s.UptimeSeconds, s.TemperatureC)
+		(server_id, hostname, sampled_at, cpu_percent, memory_percent, disk_percent, network_rx_bytes, network_tx_bytes, uptime_seconds, temperature_c)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, serverID(s.ServerID), s.Hostname, s.SampledAt.UTC().Format(time.RFC3339Nano), s.CPUPercent, s.MemoryPercent, s.DiskPercent, s.NetworkRXBytes, s.NetworkTXBytes, s.UptimeSeconds, s.TemperatureC)
 	if err != nil {
 		return fmt.Errorf("save metric sample: %w", err)
 	}
@@ -78,11 +82,19 @@ func (m *Metrics) Save(ctx context.Context, s metrics.Sample) error {
 }
 
 func (m *Metrics) Latest(ctx context.Context) (metrics.Sample, error) {
-	return scanSample(m.db.QueryRowContext(ctx, `SELECT hostname, sampled_at, cpu_percent, memory_percent, disk_percent, network_rx_bytes, network_tx_bytes, uptime_seconds, temperature_c FROM metric_samples ORDER BY id DESC LIMIT 1`))
+	return m.LatestFor(ctx, "primary")
+}
+
+func (m *Metrics) LatestFor(ctx context.Context, id string) (metrics.Sample, error) {
+	return scanSample(m.db.QueryRowContext(ctx, `SELECT server_id, hostname, sampled_at, cpu_percent, memory_percent, disk_percent, network_rx_bytes, network_tx_bytes, uptime_seconds, temperature_c FROM metric_samples WHERE server_id = ? ORDER BY id DESC LIMIT 1`, serverID(id)))
 }
 
 func (m *Metrics) Recent(ctx context.Context, limit int) ([]metrics.Sample, error) {
-	rows, err := m.db.QueryContext(ctx, `SELECT hostname, sampled_at, cpu_percent, memory_percent, disk_percent, network_rx_bytes, network_tx_bytes, uptime_seconds, temperature_c FROM metric_samples ORDER BY id DESC LIMIT ?`, limit)
+	return m.RecentFor(ctx, "primary", limit)
+}
+
+func (m *Metrics) RecentFor(ctx context.Context, id string, limit int) ([]metrics.Sample, error) {
+	rows, err := m.db.QueryContext(ctx, `SELECT server_id, hostname, sampled_at, cpu_percent, memory_percent, disk_percent, network_rx_bytes, network_tx_bytes, uptime_seconds, temperature_c FROM metric_samples WHERE server_id = ? ORDER BY id DESC LIMIT ?`, serverID(id), limit)
 	if err != nil {
 		return nil, fmt.Errorf("query metric samples: %w", err)
 	}
@@ -107,7 +119,7 @@ func scanSample(row scanner) (metrics.Sample, error) {
 	var s metrics.Sample
 	var timestamp string
 	var temp sql.NullFloat64
-	if err := row.Scan(&s.Hostname, &timestamp, &s.CPUPercent, &s.MemoryPercent, &s.DiskPercent, &s.NetworkRXBytes, &s.NetworkTXBytes, &s.UptimeSeconds, &temp); err != nil {
+	if err := row.Scan(&s.ServerID, &s.Hostname, &timestamp, &s.CPUPercent, &s.MemoryPercent, &s.DiskPercent, &s.NetworkRXBytes, &s.NetworkTXBytes, &s.UptimeSeconds, &temp); err != nil {
 		return s, fmt.Errorf("scan metric sample: %w", err)
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, timestamp)

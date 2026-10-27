@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import io
+from unittest.mock import patch
 import unittest
 
 import numpy as np
@@ -10,7 +12,7 @@ from model.features import make_features, make_targets
 from model.features_v2 import FEATURE_NAMES as V2_FEATURE_NAMES, make_features as make_features_v2
 from model.calibration import calibrated_probability
 from model.predict import load_artifact, score
-from model.serve import counts_from_traffic
+from model.serve import counts_from_traffic, main as serve_main
 from model.train import selected
 
 
@@ -77,6 +79,13 @@ class TrafficTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_operational_service_requires_measured_capacity(self) -> None:
+        with patch("sys.argv", ["model.serve", "--enable-operational-scaling"]), patch("sys.stderr", new_callable=io.StringIO), patch("model.serve.load_artifact") as load:
+            with self.assertRaises(SystemExit) as error:
+                serve_main()
+            self.assertEqual(error.exception.code, 2)
+            load.assert_not_called()
+
     def test_v2_offline_score_matches_vectorized_model(self) -> None:
         artifact = load_artifact(Path("model/artifacts/serverless_model.joblib"))
         counts = np.full(60, 10)

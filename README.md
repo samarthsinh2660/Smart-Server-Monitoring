@@ -26,12 +26,18 @@ A Raspberry Pi controlled prototype that monitors a primary laptop, wakes a stan
 | `internal/config/` | Pi and laptops | Configuration loading |
 | `internal/proxy/` | Raspberry Pi | HAProxy target management |
 | `internal/store/` | Raspberry Pi | SQLite metrics, traffic, and controller events |
-| `web/` | Raspberry Pi | Next.js status dashboard |
+| `web/` | Laptop 1 | Next.js dashboard; reads the Pi API over the LAN |
 | `start-backend.sh` | Development laptop | Build and start the Go services and the trained Python model together |
 | `config/example.yaml` | Raspberry Pi | Example topology and policy values |
 | `deploy/` | Pi and laptops | HAProxy, Docker, and systemd setup |
 
-The Go agent can read live Linux laptop metrics. The Go controller polls one agent every five seconds and stores samples locally. [Traffic Lab](demo/traffic-lab/README.md) provides dashboard controls for repeatable load demonstrations. Scaling and physical hardware integration remain future phases.
+The Go agent reads native Windows and Linux laptop metrics. The controller polls the primary and an optional standby every five seconds, stores separate histories, and exposes both servers through its API. [Traffic Lab](demo/traffic-lab/README.md) supports presets and bounded custom rate, concurrency, work cost, and duration. The activation manager implements sustained CPU activation, optional validated AI activation, Wi-Fi magic packets, health-gated HAProxy control, failure handling, and guarded reset. Hardware control is disabled by default; actual Windows/Pi/wireless trials remain to be completed.
+
+The deployment uses a Raspberry Pi 4 Model B for the controller, model inference, SQLite, and HAProxy, with native Windows applications and a dashboard hosted on Laptop 1. The default policy warns at 60% primary CPU, requests activation after 70% continuously for 15 seconds, and permits explicitly validated AI to request an earlier wake. Follow the [Windows and Pi setup guide](docs/windows-pi-setup.md) for startup commands, configuration, and physical acceptance checks; the [deployment design](docs/windows-wireless-deployment.md) explains the boundaries.
+
+Build Windows binaries from Linux with `./build-windows.sh`. On Windows, use `start-windows.ps1 -Role standby -SkipBuild` for Laptop 2, and `start-windows.ps1 -Role primary -Presentation -PiAddress <Pi-IP> -SkipBuild` for Laptop 1. On the Pi, configure `config/pi.env` and use `./start-pi.sh`. The existing `./start-backend.sh` remains the single-machine development launcher.
+
+Continuing with Codex after switching to Windows: read [the Windows Codex handoff](docs/windows-codex-handoff.md) for current implementation evidence, transfer instructions, remaining tests, and a continuation prompt.
 
 ## Run the laptop prototype
 
@@ -93,7 +99,7 @@ The launcher starts the Python scoring service when `model/artifacts/serverless_
 curl http://127.0.0.1:8080/api/prediction
 ```
 
-The score means the chance of a **traffic surge** in the next two minutes, with a predicted request rate and upper estimate. It does not mean this laptop will overload. Set `MODEL_CAPACITY_RPM` to a measured one-server capacity to see a **shadow** `would_wake` or `stay_primary` decision. The model is trained on real Azure request traces, but those traces contain no measured capacity or benefit from adding this project's second server. **No score wakes a laptop or changes routing yet.** Held-out trace results and the remaining activation work are in the [model guide](model/README.md).
+The score means the chance of a **traffic surge** in the next two minutes, with a predicted request rate and upper estimate. It does not mean this laptop will overload. Set `MODEL_CAPACITY_RPM` to measured one-server capacity to see a **shadow** `would_wake` or `stay_primary` decision. The model is trained on real Azure request traces, but those traces contain no measured capacity or benefit from adding this project's second server. **Predictions stay shadow-only by default.** The [Pi setup guide](docs/windows-pi-setup.md#8-ai-behavior) documents the separate switches required after physical validation. The CPU activation path works without model availability when hardware control is explicitly enabled.
 
 Restart `./start-backend.sh` after changing Go code. The SQLite file defaults to `data/monitor.sqlite3` and is ignored by Git; saved samples survive a controller restart. If `curl` says “Couldn't connect to server,” check that the startup terminal is still running. If the app is stopped separately, `app_health.status` becomes `unhealthy` while metrics can remain available; if the agent is stopped separately, `metrics_available` becomes false while the app can remain healthy. Historical samples stay in the database in both cases.
 
@@ -109,7 +115,7 @@ For different hosts, set `AGENT_ADDR` and `DEMOAPP_ADDR` to private LAN bind add
 | Go demo app | `GET /health`, `GET /`, `GET /workload`, `GET /stats` | Stateless app with bounded CPU work and cumulative request counters |
 | Next.js dashboard | `GET /` | Reads the private Go API on the server and refreshes status, trends, and events every five seconds |
 
-The controller will later own Wake-on-LAN, scaling decisions, and HAProxy changes. Next.js is only the frontend. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.
+The controller owns Wake-on-LAN, scaling decisions, and HAProxy changes when `SCALING_ENABLED=true` and hardware settings are configured. `GET /api/servers` and `/api/scaling` expose both servers and activation state; history endpoints accept `server=primary|standby`. Authenticated `POST /api/standby/activate`, `/retry`, and `/reset` handle operator actions. Next.js remains the frontend and calls the Pi API server-side. An unavailable controller appears as unavailable on the dashboard rather than as a healthy machine.
 
 ## Build targets
 
@@ -133,7 +139,7 @@ The [laptop Compose file](deploy/docker/README.md) builds the same Go app image 
 
 1. Confirm the standby wakes from the intended power state and starts its app automatically.
 2. Run the same stateless app on both laptops through the Pi proxy.
-3. Extend the working single-laptop metrics and app checks to both laptops, then add the activation state machine.
-4. Add event history, dashboard, alerts, and a repeatable demo.
+3. Verify both server histories and exercise the implemented activation state machine with the actual hardware settings.
+4. Exercise dashboard controls, failure recovery, and the event timeline; record a repeatable demo.
 
 Copy `config/example.yaml` to `config/local.yaml` when device addresses and the standby MAC are known. Keep real settings and secrets out of version control.

@@ -26,6 +26,12 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	recorder := traffic.NewRecorder(name)
+	maxConcurrency, err := strconv.Atoi(env("DEMOAPP_MAX_CONCURRENCY", "32"))
+	if err != nil || maxConcurrency < 1 || maxConcurrency > 256 {
+		log.Fatal("DEMOAPP_MAX_CONCURRENCY must be 1..256")
+	}
+	// Bound CPU workload requests independently of health and statistics probes.
+	seats := make(chan struct{}, maxConcurrency)
 	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, _ *http.Request) {
 		httpserver.WriteJSON(w, http.StatusOK, recorder.Snapshot())
 	})
@@ -56,6 +62,13 @@ func main() {
 			}
 			durationMS = parsed
 		}
+		select {
+		case seats <- struct{}{}:
+			defer func() { <-seats }()
+		default:
+			httpserver.WriteJSON(w, http.StatusTooManyRequests, map[string]string{"error": "workload concurrency limit reached"})
+			return
+		}
 
 		deadline := time.Now().Add(time.Duration(durationMS) * time.Millisecond)
 		var checksum uint64
@@ -78,4 +91,11 @@ func main() {
 	if err := httpserver.Run(addr, recorder.Wrap(mux)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func env(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }

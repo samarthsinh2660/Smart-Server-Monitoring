@@ -17,6 +17,7 @@ import (
 
 // Poller keeps reachability separate from historical samples.
 type Poller struct {
+	ServerID string
 	AgentURL string
 	Client   *http.Client
 	Store    *store.Metrics
@@ -24,6 +25,7 @@ type Poller struct {
 	mu       sync.RWMutex
 	lastErr  string
 	lastOK   time.Time
+	latest   metrics.Sample
 }
 
 func (p *Poller) Run(ctx context.Context) {
@@ -73,14 +75,29 @@ func (p *Poller) Poll(ctx context.Context) {
 		p.fail(fmt.Errorf("agent returned invalid or stale metrics"))
 		return
 	}
+	p.mu.RLock()
+	previous := p.lastOK
+	p.mu.RUnlock()
+	if !previous.IsZero() && !sample.SampledAt.After(previous) {
+		p.fail(fmt.Errorf("agent returned repeated or backwards timestamp"))
+		return
+	}
+	sample.ServerID = p.ServerID
 	if err := p.Store.Save(requestCtx, sample); err != nil {
 		p.fail(err)
 		return
 	}
 	p.mu.Lock()
 	p.lastOK = sample.SampledAt
+	p.latest = sample
 	p.lastErr = ""
 	p.mu.Unlock()
+}
+
+func (p *Poller) Latest() metrics.Sample {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.latest
 }
 
 func validPercent(n float64) bool { return n >= 0 && n <= 100 }

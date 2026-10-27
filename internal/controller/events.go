@@ -11,11 +11,12 @@ import (
 
 // EventMonitor records changes without turning monitoring failures into app failures.
 type EventMonitor struct {
-	Store   *store.Metrics
-	Metrics *Poller
-	App     *HealthProbe
-	Traffic *TrafficPoller
-	seen    map[string]string
+	ServerID string
+	Store    *store.Metrics
+	Metrics  *Poller
+	App      *HealthProbe
+	Traffic  *TrafficPoller
+	seen     map[string]string
 }
 
 func (m *EventMonitor) Run(ctx context.Context) {
@@ -55,6 +56,9 @@ func (m *EventMonitor) Observe(ctx context.Context) error {
 			continue
 		}
 		event := store.Event{OccurredAt: time.Now().UTC(), Kind: observation.kind, Status: observation.status, Message: observation.message}
+		if m.ServerID != "" {
+			event.Message = m.ServerID + ": " + event.Message
+		}
 		if err := m.Store.SaveEvent(ctx, event); err != nil {
 			return fmt.Errorf("%s event: %w", observation.kind, err)
 		}

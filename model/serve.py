@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -55,7 +56,7 @@ def counts_from_traffic(payload: dict, now: datetime) -> tuple[list[int], int]:
     return counts, end.hour * 60 + end.minute
 
 
-def make_handler(artifact: dict, controller_url: str, capacity_rpm: float | None):
+def make_handler(artifact: dict, controller_url: str, capacity_rpm: float | None, operational: bool = False):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - stdlib interface
             if self.path == "/health":
@@ -70,6 +71,9 @@ def make_handler(artifact: dict, controller_url: str, capacity_rpm: float | None
                 now = datetime.now(timezone.utc)
                 counts, minute = counts_from_traffic(payload, now)
                 result = score(artifact, counts, minute, capacity_rpm)
+                # This explicit deployment switch records the operator's completed
+                # hardware/capacity validation; training metrics do not enable it.
+                result["operational_scale_ready"] = operational and capacity_rpm is not None
                 result["scored_at"] = now.isoformat().replace("+00:00", "Z")
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
                 result = unavailable(str(exc))
@@ -93,9 +97,14 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--capacity-rpm", type=float, help="measured one-server capacity; shadow decision only")
+    parser.add_argument("--enable-operational-scaling", action="store_true", help="operator confirms physical capacity and false-wake validation; allows Pi activation")
     args = parser.parse_args()
+    if args.capacity_rpm is not None and (not math.isfinite(args.capacity_rpm) or args.capacity_rpm <= 0):
+        parser.error("--capacity-rpm must be positive and finite")
+    if args.enable_operational_scaling and args.capacity_rpm is None:
+        parser.error("--enable-operational-scaling requires a measured --capacity-rpm")
     artifact = load_artifact(args.artifact)
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(artifact, args.controller_url, args.capacity_rpm))
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(artifact, args.controller_url, args.capacity_rpm, args.enable_operational_scaling))
     print(f"Python model listening on {args.host}:{args.port}", flush=True)
     server.serve_forever()
 

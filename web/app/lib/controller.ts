@@ -46,8 +46,32 @@ export type PredictionStatus = {
   upper_rpm?: number;
   surge_alert?: boolean;
   shadow_action?: "capacity_unconfigured" | "would_wake" | "stay_primary";
+  decision_reason?: string;
   shadow_capacity_rpm?: number | null;
   operational_scale_ready?: boolean;
+};
+
+export type ServerStatus = {
+  id: "primary" | "standby";
+  metrics_available: boolean;
+  traffic_available: boolean;
+  metrics?: MetricSample;
+  app_health: { status: "healthy" | "unhealthy" | "unknown" };
+};
+
+export type ScalingStatus = {
+  state: string;
+  enabled: boolean;
+  ai_enabled: boolean;
+  ready: boolean;
+  warning_cpu_percent: number;
+  activation_cpu_percent: number;
+  hold_seconds: number;
+  hold_progress_seconds: number;
+  cpu_level: string;
+  reason: string;
+  error?: string;
+  targets: Record<string, { enabled: boolean; healthy: boolean; sessions: number; status: string }>;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -91,9 +115,9 @@ export async function readStatus(): Promise<ControllerStatus | null> {
   }
 }
 
-export async function readMetrics(): Promise<MetricSample[]> {
+export async function readMetrics(server: "primary" | "standby" = "primary"): Promise<MetricSample[]> {
   try {
-    const value = await read("/api/metrics?limit=60");
+    const value = await read(`/api/metrics?limit=60&server=${server}`);
     if (!isObject(value) || !Array.isArray(value.samples)) return [];
     return value.samples.filter((item): item is MetricSample =>
       isObject(item) && typeof item.hostname === "string" &&
@@ -106,9 +130,9 @@ export async function readMetrics(): Promise<MetricSample[]> {
   }
 }
 
-export async function readTraffic(): Promise<TrafficSample[]> {
+export async function readTraffic(server: "primary" | "standby" = "primary"): Promise<TrafficSample[]> {
   try {
-    const value = await read("/api/traffic?limit=60");
+    const value = await read(`/api/traffic?limit=60&server=${server}`);
     if (!isObject(value) || !Array.isArray(value.samples)) return [];
     return value.samples.filter((item): item is TrafficSample =>
       isObject(item) && typeof item.sampled_at === "string" &&
@@ -150,6 +174,7 @@ export async function readPrediction(): Promise<PredictionStatus | null> {
       (value.upper_rpm !== undefined && !finiteNumber(value.upper_rpm)) ||
       (value.surge_alert !== undefined && typeof value.surge_alert !== "boolean") ||
       (value.shadow_action !== undefined && !["capacity_unconfigured", "would_wake", "stay_primary"].includes(String(value.shadow_action))) ||
+      (value.decision_reason !== undefined && typeof value.decision_reason !== "string") ||
       (value.shadow_capacity_rpm !== undefined && !nullableNumber(value.shadow_capacity_rpm)) ||
       (value.operational_scale_ready !== undefined && typeof value.operational_scale_ready !== "boolean") ||
       (value.available && value.risk_score === undefined)) return null;
@@ -157,4 +182,32 @@ export async function readPrediction(): Promise<PredictionStatus | null> {
   } catch {
     return null;
   }
+}
+
+export async function readServers(): Promise<ServerStatus[]> {
+  try {
+    const value = await read("/api/servers");
+    if (!isObject(value) || !Array.isArray(value.servers)) return [];
+    return value.servers.filter((s): s is ServerStatus =>
+      isObject(s) && ["primary", "standby"].includes(String(s.id)) &&
+      typeof s.metrics_available === "boolean" && typeof s.traffic_available === "boolean" &&
+      isObject(s.app_health) && ["healthy", "unhealthy", "unknown"].includes(String(s.app_health.status)) &&
+      (s.metrics === undefined || (isObject(s.metrics) && typeof s.metrics.hostname === "string" && finiteNumber(s.metrics.cpu_percent) && finiteNumber(s.metrics.memory_percent)))
+    );
+  } catch { return []; }
+}
+
+export async function readScaling(): Promise<ScalingStatus | null> {
+  try {
+    const value = await read("/api/scaling");
+    if (!isObject(value) || typeof value.state !== "string" || typeof value.enabled !== "boolean" ||
+      typeof value.ai_enabled !== "boolean" || typeof value.ready !== "boolean" ||
+      typeof value.reason !== "string" || typeof value.cpu_level !== "string" ||
+      ![value.warning_cpu_percent, value.activation_cpu_percent, value.hold_seconds, value.hold_progress_seconds].every(finiteNumber) ||
+      !isObject(value.targets) || (value.error !== undefined && typeof value.error !== "string")) return null;
+    for (const target of Object.values(value.targets)) {
+      if (!isObject(target) || typeof target.enabled !== "boolean" || typeof target.healthy !== "boolean" || !finiteNumber(target.sessions) || typeof target.status !== "string") return null;
+    }
+    return value as ScalingStatus;
+  } catch { return null; }
 }

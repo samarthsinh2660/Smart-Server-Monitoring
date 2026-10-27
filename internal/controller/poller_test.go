@@ -56,3 +56,32 @@ func TestPollKeepsHistoryWhenAgentFails(t *testing.T) {
 		t.Fatalf("history changed after failure: %+v", samples)
 	}
 }
+
+func TestRepeatedAgentTimestampBecomesUnavailableWithoutDuplicatingHistory(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "repeated.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sample := metrics.Sample{Hostname: "windows", SampledAt: time.Now().UTC(), CPUPercent: 85, MemoryPercent: 40, DiskPercent: 50}
+	body, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Poller{ServerID: "primary", AgentURL: "http://agent", Client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(body))), Header: make(http.Header), Request: r}, nil
+	})}, Store: db, Interval: 5 * time.Second}
+	p.Poll(context.Background())
+	p.Poll(context.Background())
+	available, message, _ := p.State()
+	if available || message == "" {
+		t.Fatal("repeated CPU sample remained available")
+	}
+	rows, err := db.Recent(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("repeated sample was persisted %d times", len(rows))
+	}
+}

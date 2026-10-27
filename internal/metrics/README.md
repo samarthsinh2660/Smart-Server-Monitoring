@@ -1,3 +1,3 @@
 # Metrics
 
-Metrics collection on laptops and metrics polling on the Pi belong here. Missing samples must be treated as unavailable rather than zero.
+Native collection is selected by Go platform files: Linux reads `/proc`/filesystem counters; Windows uses GetSystemTimes, GlobalMemoryStatusEx, GetDiskFreeSpaceExW, GetTickCount64, and GetIfEntry2. Both return the shared sample shape. Windows omits unavailable temperature rather than returning a fabricated value. Collection samples CPU over 200 ms; compare several readings with OS tools rather than requiring identical sampling windows. The Pi assigns the configured server identity and rejects invalid/stale/repeated readings before storing them. Cross-built Windows native checks are in `bin/windows-amd64/metrics.test.exe`.

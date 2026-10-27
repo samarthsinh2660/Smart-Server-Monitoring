@@ -1,4 +1,5 @@
-# Example only. Copy to config/local.yaml and set your own LAN addresses.
+# Planned configuration only; the current services do not load this YAML.
+# Copy to config/local.yaml and set your own LAN addresses before integration.
 network:
   primary_host: "192.168.1.11"
   standby_host: "192.168.1.12"
@@ -8,8 +9,9 @@ network:
 
 controller:
   poll_interval_seconds: 5
-  high_cpu_percent: 80
-  high_cpu_duration_seconds: 60
+  warning_cpu_percent: 60
+  high_cpu_percent: 70
+  high_cpu_duration_seconds: 15
   health_failure_count: 3
   standby_start_timeout_seconds: 180
 

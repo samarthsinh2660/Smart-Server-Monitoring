@@ -20,7 +20,7 @@ Keep the Pi, network equipment, and standby adapter powered during the test. Use
 
 | Device | Model / OS | Wake adapter MAC (redacted in Git) | Reserved LAN address (redacted in Git) | Network link verified | Address survives reboot |
 | --- | --- | --- | --- | --- | --- |
-| Raspberry Pi | TBD | TBD | TBD | TBD | TBD |
+| Raspberry Pi | Raspberry Pi 4 Model B; OS pending | TBD | TBD | TBD | TBD |
 | Laptop 1 (primary) | TBD | TBD | TBD | TBD | TBD |
 | Laptop 2 (standby) | TBD | TBD | TBD | TBD | TBD |
 
@@ -70,7 +70,7 @@ date -Is
 
 ## Workspace observation (2026-10-12)
 
-The Raspberry Pi and other hardware are deferred. The current workspace is a Lenovo IdeaPad Gaming 3 15IAH7 (type 82S9), running Linux on x86_64. It is using Wi-Fi (`wlp49s0`, Realtek RTL8852BE, driver `rtw89_8852be`); its wired Ethernet (`enp48s0`, Realtek RTL8168, driver `r8169`) is down. Both devices currently report `power/wakeup: disabled`. Linux offers `s2idle` and `deep` sleep, with `s2idle` selected.
+At the time of this observation, the Raspberry Pi and other hardware were deferred. A Raspberry Pi 4 Model B is now available, but its OS, network connection, and wake trials are not yet recorded. The current workspace is a Lenovo IdeaPad Gaming 3 15IAH7 (type 82S9), running Linux on x86_64. It is using Wi-Fi (`wlp49s0`, Realtek RTL8852BE, driver `rtw89_8852be`); its wired Ethernet (`enp48s0`, Realtek RTL8168, driver `r8169`) is down. Both devices currently report `power/wakeup: disabled`. Linux offers `s2idle` and `deep` sleep, with `s2idle` selected.
 
 For the present Wi-Fi-only setup, the relevant feature is **Wake on Wireless LAN (WoWLAN)**, usually tested from sleep while the adapter remains associated with the access point ([Linux Wireless documentation](https://wireless.docs.kernel.org/en/latest/en/users/documentation/wowlan.html)). The [upstream Linux RTL8852B driver](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/realtek/rtw89/rtw8852b.c) advertises magic-packet WoWLAN support. The user ran `iw phy` directly on this laptop and confirmed that the loaded driver reports `wake up on magic packet`, `wake up on disconnect`, and pattern matching (up to 18 patterns). This establishes driver capability, but the laptop's firmware, access point, and sleep configuration still need an end-to-end wake trial. The workspace sandbox blocks its own `iw phy` and `ethtool` queries. Status: **magic-packet capability confirmed; actual wake untested**.
 

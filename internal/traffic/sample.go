@@ -3,6 +3,7 @@ package traffic
 // Sample adds rates for the interval since the previous app snapshot.
 // Nil rates mean there was no usable previous snapshot yet.
 type Sample struct {
+	ServerID string `json:"server_id,omitempty"`
 	Snapshot
 	RequestRate  *float64 `json:"request_rate_per_second"`
 	ErrorRate    *float64 `json:"error_rate_percent"`

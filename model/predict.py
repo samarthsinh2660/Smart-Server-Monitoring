@@ -55,8 +55,17 @@ def score(artifact: dict, counts: list[int] | np.ndarray, minute_of_day: int, ca
     if capacity_rpm is not None and (not np.isfinite(capacity_rpm) or capacity_rpm <= 0):
         raise ValueError("capacity_rpm must be a positive finite number")
     shadow_action = "capacity_unconfigured"
+    decision_reason = "capacity_unconfigured"
     if capacity_rpm is not None:
-        shadow_action = "would_wake" if risk >= artifact["classifier_threshold"] and upper >= capacity_rpm else "stay_primary"
+        if forecast >= capacity_rpm:
+            shadow_action = "would_wake"
+            decision_reason = "predicted_demand_reaches_capacity"
+        elif risk >= artifact["classifier_threshold"] and upper >= capacity_rpm:
+            shadow_action = "would_wake"
+            decision_reason = "surge_risk_and_upper_demand_reach_capacity"
+        else:
+            shadow_action = "stay_primary"
+            decision_reason = "predicted_demand_below_capacity"
     return {
         "available": True,
         "source": "Azure Functions Trace 2019",
@@ -67,6 +76,7 @@ def score(artifact: dict, counts: list[int] | np.ndarray, minute_of_day: int, ca
         "upper_rpm": upper,
         "surge_alert": risk >= artifact["classifier_threshold"],
         "shadow_action": shadow_action,
+        "decision_reason": decision_reason,
         "shadow_capacity_rpm": capacity_rpm,
         "operational_scale_ready": False,
     }
