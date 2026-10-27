@@ -6,7 +6,7 @@ The code supports native Windows amd64 app/agent executables, two-server Pi moni
 
 Build with `./build-windows.sh`. The three Windows executables are in `bin/windows-amd64/`. A cross-built `metrics.test.exe`, when included, runs native Windows collector checks with `./metrics.test.exe -test.v`.
 
-Copy this working project and `bin/windows-amd64/` to a drive Windows can read, or use the prepared `bin/smart-server-demo.zip` package. Extract the package on Windows and separately on the Pi. The training `data/`, Linux `node_modules`, local databases, and local secrets are not needed for this transfer. Git does not track the compiled binaries; cloning an older remote commit will not include uncommitted changes from this workspace. Do not reuse Linux Node dependencies on Windows; the presentation launcher installs Windows dependencies if needed.
+Use a source checkout on Windows and the Pi. Ensure the latest implementation commit is available in that checkout; a local commit is not available remotely until pushed. Install Go >=1.22 on Windows and let `start-windows.ps1` build the app/agent binaries, adding the generator in presentation mode. Alternatively, copy the existing `bin/windows-amd64/` executables to a Windows-readable drive and use `-SkipBuild`. Git ignores compiled binaries. The training `data/`, Linux `node_modules`, local databases, and local secrets are not needed. Do not reuse Linux Node dependencies on Windows; the presentation launcher installs Windows dependencies if needed.
 
 Laptop prerequisites: Windows 10/11 x64, the app/agent binaries, and Node.js >=20.9 on Laptop 1 only. Go >=1.22 is optional if you use the binaries; the launcher can build them when Go is installed. No Python or SQLite setup is needed on either laptop.
 
@@ -39,7 +39,7 @@ Replace both values with the measured subnet broadcast and standby Wi-Fi MAC. Re
 On Laptop 2, from the extracted project folder:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role standby -SkipBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role standby
 ```
 
 This runs the native app on port 8000 and agent on 8081. Keep the terminal open for the first test; logs are in `.logs/`. On Windows itself:
@@ -47,10 +47,10 @@ This runs the native app on port 8000 and agent on 8081. Keep the terminal open 
 ```powershell
 curl.exe http://127.0.0.1:8000/health
 curl.exe http://127.0.0.1:8081/metrics
-.\bin\windows-amd64\metrics.test.exe -test.v
+go test ./internal/metrics
 ```
 
-The test executable is optional outside the prepared package. CPU is whole-machine utilization; temperature is omitted when unsupported. Compare CPU/RAM with Task Manager over several samples, allowing for the agent's shorter sampling interval.
+If you copied the prebuilt native test executable and have no Go installation, run `.\bin\windows-amd64\metrics.test.exe -test.v` instead. CPU is whole-machine utilization; temperature is omitted when unsupported. Compare CPU/RAM with Task Manager over several samples, allowing for the agent's shorter sampling interval.
 
 Both laptops must allow the Pi to access app and agent ports. On **each** Windows laptop, run this in an Administrator PowerShell, replacing the Pi address:
 
@@ -125,7 +125,7 @@ On Laptop 1, set the matching operator secret and launch its app, agent, dashboa
 
 ```powershell
 $env:CONTROL_TOKEN = 'the-same-secret-configured-on-the-Pi'
-powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role primary -Presentation -PiAddress 192.0.2.10 -SkipBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role primary -Presentation -PiAddress 192.0.2.10
 ```
 
 Open `http://127.0.0.1:3000`. Its server reads `http://<Pi-IP>:8080`; local Traffic Lab sends application requests to `http://<Pi-IP>:8088`. Next.js operator routes attach the secret server-side; it is not sent to the browser. To start the app/agent without presenting yet, use `-Role primary -SkipBuild` without `-Presentation` and then stop that launcher before starting presentation mode.

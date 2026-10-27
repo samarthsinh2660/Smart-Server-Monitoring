@@ -53,7 +53,7 @@ Passed on Linux during implementation:
 - Windows amd64 app, agent, generator, and metrics-test **cross-builds**.
 - Windows-targeted `go vet` for app, agent, metrics, and Traffic Lab.
 - Next.js TypeScript and `npm run build -- --webpack` production build.
-- Bash launcher syntax, Git whitespace checks, and transfer ZIP CRC integrity.
+- Bash launcher syntax and Git whitespace checks.
 
 Not yet verified on the actual devices:
 
@@ -66,9 +66,9 @@ Do not describe a cross-build or injected-device test as a successful hardware t
 
 ## Transfer and repository state
 
-The prepared `bin/smart-server-demo.zip` contains source, Windows binaries, model artifacts, configuration examples, documentation, and `BUILD-MANIFEST.json`. It excludes `.git`, local settings/secrets, training `data/`, databases, and Node dependencies. `bin/` is ignored by Git; a source clone alone does not include the `.exe` files.
+Continue from a source checkout containing the latest committed implementation. The optional transfer ZIP was removed at the user's request. `bin/` is ignored by Git; a source clone does not include `.exe` files. Install Go >=1.22 on Windows and let the Windows launcher build the binaries. Model artifacts, configuration examples and documentation are already in the source repository; large training data is unnecessary for deployment.
 
-Before reboot, copy the latest ZIP to a Windows-readable partition or USB drive. Extract it on Windows. If continuing in a Git clone, overlay the package contents onto that clone while preserving the clone's `.git`; do not create unrelated Git history just because the ZIP has no `.git`. Review any existing Windows changes before overlaying files. Go can rebuild the binaries on Windows if needed.
+Before reboot, ensure Windows can access the source checkout, or push the local commits and clone/pull them on Windows using the user's SSH transport. If reusing a working copy, preserve its `.git` and unrelated changes. Existing prebuilt binaries may be copied manually to a Windows-readable drive as a convenience; no archive is required. Do not transfer local secrets, databases, Linux Node dependencies or training data as part of setup.
 
 The implementation and this handoff are committed on `main` under **`Add Windows Pi scaling demo`**. The base before this work was `bd71a4a` (`Add dashboard traffic demo`). Earlier Linux Codex turns rejected Git staging with:
 
@@ -92,18 +92,18 @@ Commit source and documentation after reviewing the diff. Do not commit local cr
 
 ## First work on Windows
 
-1. Inspect `git status`, locate the transferred source/binaries, and read this handoff and the setup guide. Do not assume this Linux absolute path exists on Windows.
+1. Inspect `git status`, locate the source checkout, install Go >=1.22 if building there, and read this handoff and the setup guide. Do not assume this Linux absolute path exists on Windows.
 2. Parse `start-windows.ps1` and `install-windows-startup.ps1` with PowerShell's parser before running them; fix any native platform issue found. These scripts have not been executed under Windows in this session.
 3. Run the collector test first, from the project root:
 
    ```powershell
-   .\bin\windows-amd64\metrics.test.exe -test.v
+   go test ./internal/metrics
    ```
 
 4. Start the primary app and agent without presentation while checking the native endpoints:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role primary -SkipBuild
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role primary
    ```
 
    In another terminal:
@@ -131,13 +131,13 @@ Commit source and documentation after reviewing the diff. Do not commit local cr
 Primary presentation command, replacing the example Pi address and setting the shared control secret locally:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role primary -Presentation -PiAddress 192.0.2.10 -SkipBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role primary -Presentation -PiAddress 192.0.2.10
 ```
 
 Standby command:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role standby -SkipBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Role standby
 ```
 
 Pi command after editing `config/pi.env`:
