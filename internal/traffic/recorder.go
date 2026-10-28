@@ -6,15 +6,23 @@ import (
 	"time"
 )
 
+// UserCounts describes current workload visits independently of request rates.
+type UserCounts struct {
+	Active int    `json:"active_users"`
+	Served uint64 `json:"total_users_served"`
+	Limit  int    `json:"max_concurrent_users"`
+}
+
 // Snapshot contains cumulative client traffic counters since the app started.
 type Snapshot struct {
-	Hostname       string     `json:"hostname"`
-	StartedAt      time.Time  `json:"started_at"`
-	SampledAt      time.Time  `json:"sampled_at"`
-	RequestCount   uint64     `json:"request_count"`
-	ErrorCount     uint64     `json:"error_count"`
-	DurationSumMS  float64    `json:"duration_sum_ms"`
-	LatencyBuckets [11]uint64 `json:"latency_buckets"`
+	Users          *UserCounts `json:"users,omitempty"`
+	Hostname       string      `json:"hostname"`
+	StartedAt      time.Time   `json:"started_at"`
+	SampledAt      time.Time   `json:"sampled_at"`
+	RequestCount   uint64      `json:"request_count"`
+	ErrorCount     uint64      `json:"error_count"`
+	DurationSumMS  float64     `json:"duration_sum_ms"`
+	LatencyBuckets [11]uint64  `json:"latency_buckets"`
 }
 
 type Recorder struct {
@@ -41,10 +49,10 @@ func (r *Recorder) Snapshot() Snapshot {
 	}
 }
 
-// Wrap counts application requests. Health and stats probes are excluded.
+// Wrap counts application requests. Health, stats and user-count probes are excluded.
 func (r *Recorder) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path == "/health" || req.URL.Path == "/stats" {
+		if req.URL.Path == "/health" || req.URL.Path == "/stats" || req.URL.Path == "/users" {
 			next.ServeHTTP(w, req)
 			return
 		}

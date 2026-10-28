@@ -70,7 +70,7 @@ func newScalingTest() (*Scaling, *fakeRouting, *memoryControl, *int) {
 	r := &fakeRouting{targets: map[string]proxy.Target{"primary": {Enabled: true, Healthy: true, Status: "UP"}, "standby": {Status: "MAINT"}}}
 	db := &memoryControl{}
 	wakes := new(int)
-	s := &Scaling{Config: config.Runtime{Enabled: true, WarningCPU: 60, HighCPU: 70, Hold: 15 * time.Second, StartTimeout: 180 * time.Second}, Router: r, Store: db, Wake: func(context.Context, string, string) error { *wakes++; return nil }}
+	s := &Scaling{Config: config.Runtime{Enabled: true, WakeEnabled: true, WarningCPU: 60, HighCPU: 70, Hold: 15 * time.Second, StartTimeout: 180 * time.Second}, Router: r, Store: db, Wake: func(context.Context, string, string) error { *wakes++; return nil }}
 	return s, r, db, wakes
 }
 
@@ -142,6 +142,24 @@ func TestActivationWakesOnceAndWaitsForAppAndProxyHealth(t *testing.T) {
 	stepTest(t, s, base.Add(23*time.Second), 85, true)
 	if s.Status().State != "BOTH_ACTIVE" || *wakes != 1 {
 		t.Fatalf("active=%+v wakes=%d", s.Status(), *wakes)
+	}
+}
+
+func TestAlwaysOnActivationNeverSendsWakeAndWaitsForHealth(t *testing.T) {
+	s, r, _, wakes := newScalingTest()
+	s.Config.WakeEnabled = false
+	now := time.Now()
+	stepTest(t, s, now, 20, false)
+	for _, n := range []int{1, 6, 11, 16} {
+		stepTest(t, s, now.Add(time.Duration(n)*time.Second), 80, false)
+	}
+	if *wakes != 0 || s.Status().State != "STARTING_STANDBY" || r.targets["standby"].Enabled {
+		t.Fatalf("unhealthy always-on target received wake/traffic: %+v wakes=%d", s.Status(), *wakes)
+	}
+	stepTest(t, s, now.Add(17*time.Second), 80, true)
+	stepTest(t, s, now.Add(18*time.Second), 80, true)
+	if s.Status().State != "BOTH_ACTIVE" || *wakes != 0 {
+		t.Fatalf("always-on activation failed: %+v", s.Status())
 	}
 }
 

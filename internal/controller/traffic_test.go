@@ -72,3 +72,29 @@ func TestTrafficPollerCalculatesIntervalAndRetainsHistory(t *testing.T) {
 		t.Fatalf("history after failure: count=%d error=%v", len(samples), err)
 	}
 }
+
+func TestLiveUsersDisappearOnStaleOrFailedPoll(t *testing.T) {
+	p := &TrafficPoller{Interval: 5 * time.Second, lastOK: time.Now(), previous: traffic.Snapshot{Users: &traffic.UserCounts{Active: 2, Served: 10, Limit: 32}}}
+	u := p.Users()
+	if u == nil || u.Active != 2 || u.Served != 10 {
+		t.Fatalf("missing live users: %+v", u)
+	}
+	u.Active = 9
+	if p.Users().Active != 2 {
+		t.Fatal("callers can mutate cached counts")
+	}
+	p.lastErr = "unreachable"
+	if p.Users() != nil {
+		t.Fatal("failed poll exposed old user counts")
+	}
+	p.lastErr = ""
+	p.lastOK = time.Now().Add(-16 * time.Second)
+	if p.Users() != nil {
+		t.Fatal("stale counts remained available")
+	}
+	p.lastOK = time.Now()
+	p.previous.Users = nil
+	if p.Users() != nil {
+		t.Fatal("old app without counts must stay unavailable")
+	}
+}

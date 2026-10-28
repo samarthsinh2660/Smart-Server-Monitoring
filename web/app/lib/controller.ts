@@ -8,6 +8,8 @@ export type ControllerStatus = {
 };
 
 export type MetricSample = {
+	platform?: string;
+	architecture?: string;
   hostname: string;
   sampled_at: string;
   cpu_percent: number;
@@ -52,6 +54,7 @@ export type PredictionStatus = {
 };
 
 export type ServerStatus = {
+	users?: { active_users: number; total_users_served: number; max_concurrent_users: number };
   id: "primary" | "standby";
   metrics_available: boolean;
   traffic_available: boolean;
@@ -191,6 +194,7 @@ export async function readServers(): Promise<ServerStatus[]> {
     return value.servers.filter((s): s is ServerStatus =>
       isObject(s) && ["primary", "standby"].includes(String(s.id)) &&
       typeof s.metrics_available === "boolean" && typeof s.traffic_available === "boolean" &&
+	  (s.users === undefined || (isObject(s.users) && [s.users.active_users, s.users.total_users_served, s.users.max_concurrent_users].every((v) => finiteNumber(v) && Number.isInteger(v) && v >= 0))) &&
       isObject(s.app_health) && ["healthy", "unhealthy", "unknown"].includes(String(s.app_health.status)) &&
       (s.metrics === undefined || (isObject(s.metrics) && typeof s.metrics.hostname === "string" && finiteNumber(s.metrics.cpu_percent) && finiteNumber(s.metrics.memory_percent)))
     );

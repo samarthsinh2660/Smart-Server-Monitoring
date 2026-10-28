@@ -7,6 +7,7 @@ import (
 
 	"smartserver/internal/metrics"
 	"smartserver/internal/store"
+	"smartserver/internal/traffic"
 )
 
 type Server struct {
@@ -17,12 +18,13 @@ type Server struct {
 }
 
 type ServerStatus struct {
-	ID               string          `json:"id"`
-	MetricsAvailable bool            `json:"metrics_available"`
-	TrafficAvailable bool            `json:"traffic_available"`
-	MetricsError     string          `json:"metrics_error,omitempty"`
-	Metrics          *metrics.Sample `json:"metrics,omitempty"`
-	App              AppHealth       `json:"app_health"`
+	Users            *traffic.UserCounts `json:"users,omitempty"`
+	ID               string              `json:"id"`
+	MetricsAvailable bool                `json:"metrics_available"`
+	TrafficAvailable bool                `json:"traffic_available"`
+	MetricsError     string              `json:"metrics_error,omitempty"`
+	Metrics          *metrics.Sample     `json:"metrics,omitempty"`
+	App              AppHealth           `json:"app_health"`
 }
 
 func NewServer(id, agent, app string, db *store.Metrics) *Server {
@@ -40,6 +42,7 @@ func (s *Server) Status() ServerStatus {
 	ok, err, _ := s.Metrics.State()
 	traffic, _, _ := s.Traffic.State()
 	r := ServerStatus{ID: s.ID, MetricsAvailable: ok, TrafficAvailable: traffic, MetricsError: err, App: s.App.State()}
+	r.Users = s.Traffic.Users()
 	if ok {
 		sample := s.Metrics.Latest()
 		r.Metrics = &sample

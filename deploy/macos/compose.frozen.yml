@@ -1,0 +1,9 @@
+services:
+  demoapp:
+    image: smartserver-standby:faculty-20261028
+    restart: unless-stopped
+    environment:
+      DEMOAPP_ADDR: ":8000"
+      SERVER_NAME: standby
+    ports:
+      - "0.0.0.0:8000:8000"

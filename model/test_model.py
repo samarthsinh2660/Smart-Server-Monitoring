@@ -61,6 +61,17 @@ class FeatureTests(unittest.TestCase):
 
 
 class TrafficTests(unittest.TestCase):
+    def test_restart_reports_real_warmup_without_mixing_counters(self) -> None:
+        now = datetime(2026, 10, 22, 12, 1, 10, tzinfo=timezone.utc)
+        first = datetime(2026, 10, 22, 11, 0, 55, tzinfo=timezone.utc)
+        samples = []
+        for index in range(722):
+            sampled = first + timedelta(seconds=5 * index)
+            recent = sampled >= datetime(2026, 10, 22, 11, 59, tzinfo=timezone.utc)
+            samples.append({"sampled_at": sampled.isoformat(), "started_at": "2026-10-22T11:59:00Z" if recent else "2026-10-22T10:00:00Z", "request_count": index if not recent else index - 697})
+        with self.assertRaisesRegex(ValueError, r"AI running; collecting history after app restart: 2/60"):
+            counts_from_traffic({"available": True, "samples": samples}, now)
+
     def test_aggregates_complete_minute_buckets(self) -> None:
         now = datetime(2026, 10, 22, 12, 1, 10, tzinfo=timezone.utc)
         first = datetime(2026, 10, 22, 11, 0, 55, tzinfo=timezone.utc)

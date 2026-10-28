@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 
 	"smartserver/internal/httpserver"
 	"smartserver/internal/metrics"
@@ -40,6 +41,8 @@ func main() {
 			httpserver.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "metrics unavailable"})
 			return
 		}
+		sample.Platform = runtime.GOOS
+		sample.Architecture = runtime.GOARCH
 		httpserver.WriteJSON(w, http.StatusOK, sample)
 	})
 	if err := httpserver.Run(addr, mux); err != nil {

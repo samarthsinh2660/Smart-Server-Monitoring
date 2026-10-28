@@ -368,7 +368,7 @@ func (s *Scaling) activate(ctx context.Context, now time.Time, standby ServerSta
 	if err := s.transition(ctx, "STARTING_STANDBY", reason, now.Add(s.Config.StartTimeout)); err != nil {
 		return err
 	}
-	if standby.App.Status != "healthy" {
+	if s.Config.WakeEnabled && standby.App.Status != "healthy" {
 		wake := s.Wake
 		if wake == nil {
 			wake = SendWake

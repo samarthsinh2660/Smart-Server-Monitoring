@@ -4,6 +4,8 @@ import "time"
 
 // Sample is one complete reading from a laptop agent. Network counters are cumulative.
 type Sample struct {
+	Platform       string    `json:"platform,omitempty"`
+	Architecture   string    `json:"architecture,omitempty"`
 	ServerID       string    `json:"server_id,omitempty"`
 	Hostname       string    `json:"hostname"`
 	SampledAt      time.Time `json:"sampled_at"`

@@ -13,7 +13,7 @@ func TestRecorderExcludesProbesAndCountsErrors(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 		}
 	}))
-	for _, path := range []string{"/health", "/stats", "/", "/invalid"} {
+	for _, path := range []string{"/health", "/stats", "/users", "/", "/invalid"} {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
 	}
 	s := r.Snapshot()

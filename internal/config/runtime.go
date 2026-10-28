@@ -13,6 +13,7 @@ import (
 type Runtime struct {
 	PrimaryApp, PrimaryAgent, StandbyApp, StandbyAgent string
 	Enabled, AIEnabled                                 bool
+	WakeEnabled                                        bool
 	WarningCPU, HighCPU                                float64
 	Hold, StartTimeout                                 time.Duration
 	MAC, Broadcast, ProxySocket, Token                 string
@@ -28,6 +29,9 @@ func Env(name, fallback string) string {
 func Load() (Runtime, error) {
 	c := Runtime{PrimaryApp: Env("APP_URL", "http://127.0.0.1:8000"), PrimaryAgent: Env("AGENT_URL", "http://127.0.0.1:8081"), StandbyApp: os.Getenv("STANDBY_APP_URL"), StandbyAgent: os.Getenv("STANDBY_AGENT_URL"), MAC: os.Getenv("STANDBY_MAC"), Broadcast: os.Getenv("WOL_BROADCAST"), ProxySocket: Env("HAPROXY_SOCKET", "/run/haproxy/admin.sock"), Token: os.Getenv("CONTROL_TOKEN")}
 	var err error
+	if c.WakeEnabled, err = strconv.ParseBool(Env("STANDBY_WAKE_ENABLED", "true")); err != nil {
+		return c, fmt.Errorf("STANDBY_WAKE_ENABLED: %w", err)
+	}
 	if c.Enabled, err = strconv.ParseBool(Env("SCALING_ENABLED", "false")); err != nil {
 		return c, fmt.Errorf("SCALING_ENABLED: %w", err)
 	}
@@ -53,8 +57,8 @@ func Load() (Runtime, error) {
 		return c, fmt.Errorf("STANDBY_TIMEOUT_SECONDS must be 10..600")
 	}
 	c.StartTimeout = time.Duration(start) * time.Second
-	if (c.StandbyApp == "") != (c.StandbyAgent == "") {
-		return c, fmt.Errorf("set both STANDBY_APP_URL and STANDBY_AGENT_URL")
+	if c.StandbyAgent != "" && c.StandbyApp == "" {
+		return c, fmt.Errorf("STANDBY_AGENT_URL requires STANDBY_APP_URL")
 	}
 	for name, value := range map[string]string{"APP_URL": c.PrimaryApp, "AGENT_URL": c.PrimaryAgent, "STANDBY_APP_URL": c.StandbyApp, "STANDBY_AGENT_URL": c.StandbyAgent} {
 		if value == "" {
@@ -66,6 +70,12 @@ func Load() (Runtime, error) {
 		}
 	}
 	if c.Enabled {
+		if c.StandbyApp == "" || len(c.Token) < 16 {
+			return c, fmt.Errorf("scaling requires a standby app URL and CONTROL_TOKEN of at least 16 characters")
+		}
+		if !c.WakeEnabled {
+			return c, nil
+		}
 		mac, e := net.ParseMAC(c.MAC)
 		if e != nil || len(mac) != 6 || mac[0]&1 != 0 || bytes.Equal(mac, make([]byte, 6)) {
 			return c, fmt.Errorf("STANDBY_MAC must be a six-byte unicast Wi-Fi MAC")

@@ -6,6 +6,10 @@ type Unit = "rpm" | "rps";
 type Rate = 200 | 500 | 1000 | 2000;
 type Preset = `${Unit}_${Rate | "ramp"}` | "custom";
 type LabStatus = {
+  user_mode?: boolean;
+  active_users_target?: number;
+  concurrency?: number;
+  continuous?: boolean;
   state: "idle" | "running" | "stopped" | "completed";
   preset?: Preset;
   unit?: Unit;
@@ -27,6 +31,10 @@ export function TrafficLab() {
   const [unit, setUnit] = useState<Unit>("rpm");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [continuous, setContinuous] = useState(true);
+  const [loadMode, setLoadMode] = useState("combined");
+  const userMode = loadMode === "users";
+  const [activeUsers, setActiveUsers] = useState(2);
   const [custom, setCustom] = useState({ rate: 1000, concurrency: 32, workload_ms: 200, duration_seconds: 120 });
 
   useEffect(() => {
@@ -53,7 +61,7 @@ export function TrafficLab() {
       const response = await fetch("/api/traffic-lab", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, preset, ...(preset === "custom" ? { unit, ...custom } : {}) }),
+        body: JSON.stringify({ action, preset, ...(preset === "custom" ? { unit, ...custom, continuous, user_mode: userMode, active_users: loadMode === "combined" ? activeUsers : 0 } : {}) }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Traffic command failed");
@@ -81,18 +89,22 @@ export function TrafficLab() {
         <span className={`lab-state ${running ? "running" : ""}`}>{status?.state ?? "offline"}</span>
       </div>
       <form className="custom-load" onSubmit={startCustom}>
-        <label>Rate ({unit})<input type="number" min="1" max="2000" step="1" required value={custom.rate} onChange={(e) => setCustom({ ...custom, rate: Number(e.target.value) })} /></label>
-        <label>Concurrent requests<input type="number" min="1" max="256" required value={custom.concurrency} onChange={(e) => setCustom({ ...custom, concurrency: Number(e.target.value) })} /></label>
+        <label>Load mode<select value={loadMode} onChange={(e) => setLoadMode(e.target.value)}><option value="users">Active simulated users</option><option value="rate">Bot requests per minute / second</option><option value="combined">Bot traffic + active users together</option></select></label>
+        {!userMode && <label>Rate ({unit})<input type="number" min="1" max="2000" step="1" required value={custom.rate} onChange={(e) => setCustom({ ...custom, rate: Number(e.target.value) })} /></label>}
+        <label>{userMode ? "Number of active users" : "Concurrent requests"}<input type="number" min="1" max="256" required value={custom.concurrency} onChange={(e) => setCustom({ ...custom, concurrency: Number(e.target.value) })} /></label>
+        {loadMode === "combined" && <label>Active users alongside bot traffic<input type="number" min="1" max="255" required value={activeUsers} onChange={(e) => setActiveUsers(Number(e.target.value))} /></label>}
         <label>CPU work per request (ms)<input type="number" min="1" max="2000" required value={custom.workload_ms} onChange={(e) => setCustom({ ...custom, workload_ms: Number(e.target.value) })} /></label>
-        <label>Run duration (seconds)<input type="number" min="1" max="3600" required value={custom.duration_seconds} onChange={(e) => setCustom({ ...custom, duration_seconds: Number(e.target.value) })} /></label>
+        <label>Run duration (seconds)<input type="number" min="1" max="3600" required={!continuous} disabled={continuous} value={custom.duration_seconds} onChange={(e) => setCustom({ ...custom, duration_seconds: Number(e.target.value) })} /></label>
+        <label><input type="checkbox" checked={continuous} onChange={(e) => setContinuous(e.target.checked)} /> Keep users visiting until I press Stop</label>
         <button type="submit" disabled={!status || busy}>Apply custom load</button>
       </form>
-      <p className="lab-intro">Send real requests to the Go demo app. Choose per-minute CPU load or high-volume per-second traffic, then watch the measured charts above.</p>
+      <p className="lab-intro">Send load through the Pi proxy to the laptop’s dummy app. Bot traffic sends requests at your selected rate. Active users finish a visit and immediately start another, staying active until Stop. Choose the combined mode to run both together.</p>
       <div className="lab-unit-switch" role="group" aria-label="Traffic rate unit">
         <button type="button" className={unit === "rpm" ? "selected" : ""} onClick={() => setUnit("rpm")}>Requests/minute</button>
         <button type="button" className={unit === "rps" ? "selected" : ""} onClick={() => setUnit("rps")}>Requests/second</button>
       </div>
-      {running && <p className="lab-progress" role="status">Target {Math.round(status?.target_rate ?? 0).toLocaleString()} requests/{status?.unit === "rpm" ? "minute" : "second"} · about {remaining} seconds left</p>}
+      {running && <p className="lab-progress" role="status">{status?.user_mode ? `${status.concurrency} simulated users repeatedly visiting the app` : `Target ${Math.round(status?.target_rate ?? 0).toLocaleString()} requests/${status?.unit === "rpm" ? "minute" : "second"}`} · {status?.continuous ? "continuous visits until Stop" : `about ${remaining} seconds left`}</p>}
+      {running && !status?.user_mode && (status?.active_users_target ?? 0) > 0 && <p className="lab-progress">Also generating load with {status?.active_users_target} continuously active simulated users.</p>}
       <div className="lab-presets">
         {rates.map((rate) => (
           <button key={rate} type="button" className="lab-preset" disabled={!status || busy}

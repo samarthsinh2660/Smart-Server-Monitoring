@@ -4,6 +4,7 @@ WORKDIR /src
 COPY go.mod ./
 COPY cmd/demoapp ./cmd/demoapp
 COPY internal/httpserver ./internal/httpserver
+COPY internal/traffic ./internal/traffic
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /demoapp ./cmd/demoapp
 
 FROM scratch

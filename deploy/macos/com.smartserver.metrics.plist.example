@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.smartserver.metrics</string>
+  <key>ProgramArguments</key><array><string>__PROJECT_ROOT__/bin/darwin-arm64/agent</string></array>
+  <key>WorkingDirectory</key><string>__PROJECT_ROOT__</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>AGENT_ADDR</key><string>0.0.0.0:8081</string>
+    <key>METRICS_DISK_PATH</key><string>/System/Volumes/Data</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__PROJECT_ROOT__/agent.log</string>
+  <key>StandardErrorPath</key><string>__PROJECT_ROOT__/agent.err.log</string>
+</dict></plist>

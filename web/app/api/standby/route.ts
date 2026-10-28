@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isSameOrigin } from "../../lib/same-origin";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (request.headers.get("origin") !== request.nextUrl.origin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  if (!isSameOrigin(request)) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   const token = process.env.CONTROL_TOKEN;
   if (!token) return NextResponse.json({ error: "Set CONTROL_TOKEN in the dashboard environment to enable operator actions." }, { status: 503 });
   let command: unknown;

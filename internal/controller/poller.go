@@ -43,6 +43,10 @@ func (p *Poller) Run(ctx context.Context) {
 }
 
 func (p *Poller) Poll(ctx context.Context) {
+	if p.AgentURL == "" {
+		p.fail(fmt.Errorf("host metrics agent not configured"))
+		return
+	}
 	requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	u, err := url.Parse(p.AgentURL)

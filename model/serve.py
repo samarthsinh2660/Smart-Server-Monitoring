@@ -28,6 +28,11 @@ def counts_from_traffic(payload: dict, now: datetime) -> tuple[list[int], int]:
     samples = sorted(payload.get("samples", []), key=lambda row: parse_time(row["sampled_at"]))
     if not samples or now - parse_time(samples[-1]["sampled_at"]) > timedelta(seconds=20):
         raise ValueError("application traffic is stale")
+    current_start = samples[-1]["started_at"]
+    restarted = any(sample["started_at"] != current_start for sample in samples)
+    # A restart begins a new real history window. Keep older database rows, but
+    # never mix their counters or fabricate missing minutes for this model.
+    samples = [sample for sample in samples if sample["started_at"] == current_start]
     end = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
     begin = end - timedelta(minutes=59)
     minute_counts: dict[datetime, int] = defaultdict(int)
@@ -47,11 +52,13 @@ def counts_from_traffic(payload: dict, now: datetime) -> tuple[list[int], int]:
             minute_counts[bucket] += delta
             coverage[bucket] += 1
         previous = sample
+    completed = sum(coverage[begin + timedelta(minutes=offset)] >= 6 for offset in range(60))
+    if completed < 60:
+        context = "after app restart" if restarted else "from the app"
+        raise ValueError(f"AI running; collecting history {context}: {completed}/60 complete minutes")
     counts = []
     for offset in range(60):
         bucket = begin + timedelta(minutes=offset)
-        if coverage[bucket] < 6:
-            raise ValueError("need 60 complete minutes of traffic history")
         counts.append(minute_counts[bucket])
     return counts, end.hour * 60 + end.minute
 

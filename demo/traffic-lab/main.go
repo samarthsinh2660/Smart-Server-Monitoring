@@ -18,13 +18,16 @@ import (
 )
 
 type preset struct {
-	name       string
-	unit       string
-	startRate  float64
-	endRate    float64
-	duration   time.Duration
-	workloadMS int
-	concurrent int
+	activeUsers int
+	userMode    bool
+	continuous  bool
+	name        string
+	unit        string
+	startRate   float64
+	endRate     float64
+	duration    time.Duration
+	workloadMS  int
+	concurrent  int
 }
 
 var presets = map[string]preset{
@@ -56,21 +59,24 @@ type run struct {
 }
 
 type status struct {
-	State           string    `json:"state"`
-	Preset          string    `json:"preset,omitempty"`
-	Unit            string    `json:"unit,omitempty"`
-	TargetRate      float64   `json:"target_rate"`
-	Concurrency     int       `json:"concurrency"`
-	WorkloadMS      int       `json:"workload_ms"`
-	DurationSeconds int       `json:"duration_seconds"`
-	AchievedRPS     float64   `json:"achieved_rps"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	EndsAt          time.Time `json:"ends_at,omitempty"`
-	Sent            int64     `json:"sent"`
-	Succeeded       int64     `json:"succeeded"`
-	Failed          int64     `json:"failed"`
-	Cancelled       int64     `json:"cancelled"`
-	Dropped         int64     `json:"dropped"`
+	ActiveUsersTarget int       `json:"active_users_target"`
+	UserMode          bool      `json:"user_mode"`
+	Continuous        bool      `json:"continuous"`
+	State             string    `json:"state"`
+	Preset            string    `json:"preset,omitempty"`
+	Unit              string    `json:"unit,omitempty"`
+	TargetRate        float64   `json:"target_rate"`
+	Concurrency       int       `json:"concurrency"`
+	WorkloadMS        int       `json:"workload_ms"`
+	DurationSeconds   int       `json:"duration_seconds"`
+	AchievedRPS       float64   `json:"achieved_rps"`
+	StartedAt         time.Time `json:"started_at,omitempty"`
+	EndsAt            time.Time `json:"ends_at,omitempty"`
+	Sent              int64     `json:"sent"`
+	Succeeded         int64     `json:"succeeded"`
+	Failed            int64     `json:"failed"`
+	Cancelled         int64     `json:"cancelled"`
+	Dropped           int64     `json:"dropped"`
 }
 
 type manager struct {
@@ -91,11 +97,19 @@ func (m *manager) snapshot() status {
 	if !r.finishedAt.IsZero() {
 		elapsed = r.finishedAt.Sub(r.startedAt)
 	}
-	fraction := min(1, max(0, float64(elapsed)/float64(r.profile.duration)))
+	fraction := 0.0
+	seconds := elapsed.Seconds()
+	if !r.profile.continuous {
+		fraction = min(1, max(0, float64(elapsed)/float64(r.profile.duration)))
+		seconds = min(seconds, r.profile.duration.Seconds())
+	}
 	rate := r.profile.startRate + (r.profile.endRate-r.profile.startRate)*fraction
 	return status{
-		State: r.state, Preset: r.preset, Unit: r.profile.unit, TargetRate: rate,
-		Concurrency: r.profile.concurrent, WorkloadMS: r.profile.workloadMS, DurationSeconds: int(r.profile.duration.Seconds()), AchievedRPS: float64(r.succeeded) / max(0.001, min(elapsed.Seconds(), r.profile.duration.Seconds())),
+		ActiveUsersTarget: r.profile.activeUsers,
+		UserMode:          r.profile.userMode,
+		State:             r.state, Preset: r.preset, Unit: r.profile.unit, TargetRate: rate,
+		Continuous:  r.profile.continuous,
+		Concurrency: r.profile.concurrent, WorkloadMS: r.profile.workloadMS, DurationSeconds: int(r.profile.duration.Seconds()), AchievedRPS: float64(r.succeeded) / max(0.001, seconds),
 		StartedAt: r.startedAt, EndsAt: r.endsAt,
 		Sent: r.sent, Succeeded: r.succeeded, Failed: r.failed, Cancelled: r.cancelled, Dropped: r.dropped,
 	}
@@ -109,9 +123,17 @@ func (m *manager) start(p preset) {
 		m.active.finishedAt = time.Now()
 		m.active.cancel()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), p.duration)
+	var ctx context.Context
+	var cancel context.CancelFunc
 	now := time.Now().UTC()
-	r := &run{preset: p.name, profile: p, state: "running", startedAt: now, endsAt: now.Add(p.duration), cancel: cancel}
+	endsAt := now.Add(p.duration)
+	if p.continuous {
+		ctx, cancel = context.WithCancel(context.Background())
+		endsAt = time.Time{}
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), p.duration)
+	}
+	r := &run{preset: p.name, profile: p, state: "running", startedAt: now, endsAt: endsAt, cancel: cancel}
 	m.active = r
 	go m.generate(ctx, r, p)
 }
@@ -137,6 +159,18 @@ func (m *manager) generate(ctx context.Context, r *run, p preset) {
 		m.mu.Unlock()
 	}()
 
+	if p.userMode {
+		m.generateUsers(ctx, r, p)
+		return
+	}
+	if p.activeUsers > 0 {
+		var users sync.WaitGroup
+		users.Add(1)
+		userProfile := p
+		userProfile.concurrent = p.activeUsers
+		go func() { defer users.Done(); m.generateUsers(ctx, r, userProfile) }()
+		defer users.Wait()
+	}
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	seats := make(chan struct{}, p.concurrent)
@@ -153,7 +187,10 @@ func (m *manager) generate(ctx context.Context, r *run, p preset) {
 				return
 			}
 			elapsed := now.Sub(r.startedAt)
-			fraction := min(1, float64(elapsed)/float64(p.duration))
+			fraction := 0.0
+			if !p.continuous {
+				fraction = min(1, float64(elapsed)/float64(p.duration))
+			}
 			rate := p.startRate + (p.endRate-p.startRate)*fraction
 			if p.unit == "rpm" {
 				rate /= 60
@@ -199,7 +236,35 @@ func (m *manager) generate(ctx context.Context, r *run, p preset) {
 	}
 }
 
-func (m *manager) send(ctx context.Context, r *run, workloadMS int) {
+// Each simulated user finishes one visit before starting the next.
+func (m *manager) generateUsers(ctx context.Context, r *run, p preset) {
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	for i := 0; i < p.concurrent; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				m.mu.Lock()
+				if ctx.Err() != nil || r.state != "running" {
+					m.mu.Unlock()
+					return
+				}
+				r.sent++
+				m.mu.Unlock()
+				if !m.send(ctx, r, p.workloadMS) {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(100 * time.Millisecond):
+					}
+				}
+			}
+		}()
+	}
+}
+
+func (m *manager) send(ctx context.Context, r *run, workloadMS int) bool {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, m.target+"/workload?duration_ms="+strconv.Itoa(workloadMS), nil)
 	if err == nil {
 		var response *http.Response
@@ -221,6 +286,7 @@ func (m *manager) send(ctx context.Context, r *run, workloadMS int) {
 		r.failed++
 	}
 	m.mu.Unlock()
+	return err == nil
 }
 
 func writeJSON(w http.ResponseWriter, code int, value any) {
@@ -231,6 +297,9 @@ func writeJSON(w http.ResponseWriter, code int, value any) {
 }
 
 type startRequest struct {
+	ActiveUsers     int     `json:"active_users"`
+	UserMode        bool    `json:"user_mode"`
+	Continuous      bool    `json:"continuous"`
 	Preset          string  `json:"preset"`
 	Unit            string  `json:"unit"`
 	Rate            float64 `json:"rate"`
@@ -247,22 +316,29 @@ func (b startRequest) profile() (preset, error) {
 		}
 		return p, nil
 	}
+	if b.UserMode {
+		b.Unit = "rps"
+		b.Rate = 0
+	}
 	if b.Unit != "rpm" && b.Unit != "rps" {
 		return preset{}, errors.New("unit must be rpm or rps")
 	}
-	if math.IsNaN(b.Rate) || math.IsInf(b.Rate, 0) || b.Rate < 1 || b.Rate > 2000 {
+	if !b.UserMode && (math.IsNaN(b.Rate) || math.IsInf(b.Rate, 0) || b.Rate < 1 || b.Rate > 2000) {
 		return preset{}, errors.New("rate must be between 1 and 2000")
 	}
 	if b.Concurrency < 1 || b.Concurrency > 256 {
 		return preset{}, errors.New("concurrency must be between 1 and 256")
 	}
+	if b.ActiveUsers < 0 || b.ActiveUsers > 256-b.Concurrency || (b.UserMode && b.ActiveUsers != 0) {
+		return preset{}, errors.New("bot concurrency plus active users must be at most 256; use combined mode for both")
+	}
 	if b.WorkloadMS < 1 || b.WorkloadMS > 2000 {
 		return preset{}, errors.New("workload_ms must be between 1 and 2000")
 	}
-	if b.DurationSeconds < 1 || b.DurationSeconds > 3600 {
+	if !b.Continuous && (b.DurationSeconds < 1 || b.DurationSeconds > 3600) {
 		return preset{}, errors.New("duration_seconds must be between 1 and 3600")
 	}
-	return preset{name: "custom", unit: b.Unit, startRate: b.Rate, endRate: b.Rate, duration: time.Duration(b.DurationSeconds) * time.Second, workloadMS: b.WorkloadMS, concurrent: b.Concurrency}, nil
+	return preset{name: "custom", activeUsers: b.ActiveUsers, userMode: b.UserMode, continuous: b.Continuous, unit: b.Unit, startRate: b.Rate, endRate: b.Rate, duration: time.Duration(b.DurationSeconds) * time.Second, workloadMS: b.WorkloadMS, concurrent: b.Concurrency}, nil
 }
 
 func main() {

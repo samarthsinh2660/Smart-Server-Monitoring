@@ -117,3 +117,15 @@ func (p *TrafficPoller) State() (bool, string, time.Time) {
 	defer p.mu.RUnlock()
 	return p.lastErr == "" && !p.lastOK.IsZero() && time.Since(p.lastOK) <= 3*p.Interval, p.lastErr, p.lastOK
 }
+
+// Users returns live app counts only while the latest stats poll is fresh.
+func (p *TrafficPoller) Users() *traffic.UserCounts {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	u := p.previous.Users
+	if p.lastErr != "" || p.lastOK.IsZero() || time.Since(p.lastOK) > 3*p.Interval || u == nil || u.Active < 0 || u.Limit < 1 || u.Active > u.Limit {
+		return nil
+	}
+	copy := *u
+	return &copy
+}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"smartserver/internal/httpserver"
@@ -24,16 +25,35 @@ func main() {
 			log.Fatalf("read hostname: %v", err)
 		}
 	}
-	mux := http.NewServeMux()
-	recorder := traffic.NewRecorder(name)
 	maxConcurrency, err := strconv.Atoi(env("DEMOAPP_MAX_CONCURRENCY", "32"))
 	if err != nil || maxConcurrency < 1 || maxConcurrency > 256 {
 		log.Fatal("DEMOAPP_MAX_CONCURRENCY must be 1..256")
 	}
+	if err := httpserver.Run(addr, newHandler(name, maxConcurrency)); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func newHandler(name string, maxConcurrency int) http.Handler {
+	mux := http.NewServeMux()
+	recorder := traffic.NewRecorder(name)
+	var served atomic.Uint64
 	// Bound CPU workload requests independently of health and statistics probes.
 	seats := make(chan struct{}, maxConcurrency)
+	users := func() map[string]any {
+		return map[string]any{
+			"server": name, "active_users": len(seats), "total_users_served": served.Load(),
+			"max_concurrent_users": maxConcurrency,
+			"description":          "Each active user is one simulated visit to /workload; completed visits are not unique people.",
+		}
+	}
+	mux.HandleFunc("GET /users", func(w http.ResponseWriter, _ *http.Request) {
+		httpserver.WriteJSON(w, http.StatusOK, users())
+	})
 	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, _ *http.Request) {
-		httpserver.WriteJSON(w, http.StatusOK, recorder.Snapshot())
+		snapshot := recorder.Snapshot()
+		snapshot.Users = &traffic.UserCounts{Active: len(seats), Served: served.Load(), Limit: maxConcurrency}
+		httpserver.WriteJSON(w, http.StatusOK, snapshot)
 	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		httpserver.WriteJSON(w, http.StatusOK, struct {
@@ -41,13 +61,11 @@ func main() {
 		}{Status: "ok"})
 	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
-		httpserver.WriteJSON(w, http.StatusOK, struct {
-			Server  string `json:"server"`
-			Message string `json:"message"`
-		}{
-			Server:  name,
-			Message: "Smart Server Monitoring demo app",
-		})
+		body := users()
+		body["message"] = "Smart Server Monitoring demo app"
+		body["users_route"] = "/users"
+		body["stats_route"] = "/stats"
+		httpserver.WriteJSON(w, http.StatusOK, body)
 	})
 	mux.HandleFunc("GET /workload", func(w http.ResponseWriter, r *http.Request) {
 		const maxDurationMS = 2000
@@ -82,15 +100,14 @@ func main() {
 			default:
 			}
 		}
+		served.Add(1)
 		httpserver.WriteJSON(w, http.StatusOK, struct {
 			Server     string `json:"server"`
 			DurationMS int    `json:"duration_ms"`
 			Checksum   uint64 `json:"checksum"`
 		}{Server: name, DurationMS: durationMS, Checksum: checksum})
 	})
-	if err := httpserver.Run(addr, recorder.Wrap(mux)); err != nil {
-		log.Fatal(err)
-	}
+	return recorder.Wrap(mux)
 }
 
 func env(name, fallback string) string {

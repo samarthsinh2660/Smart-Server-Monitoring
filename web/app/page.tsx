@@ -51,7 +51,7 @@ export default async function Home() {
         <div>
           <p className="eyebrow">PI CONTROLLER · WINDOWS SERVERS</p>
           <h2 id="overview-heading">See what your server is doing.</h2>
-          <p className="subtle">Primary metrics, application traffic, and decisions from the controller API.</p>
+          <p className="subtle">Your Windows laptop’s metrics and dummy app traffic, collected by the Raspberry Pi.</p>
         </div>
         <span className="phase-tag">{scaling?.enabled ? scaling.state.replaceAll("_", " ") : "Monitoring only"}</span>
       </section>
@@ -81,8 +81,9 @@ export default async function Home() {
 
       <section className="server-grid" aria-label="Monitored servers">
         {servers.map((server) => <article className="panel server-card" key={server.id}>
-          <p className="eyebrow">{server.id === "primary" ? "LAPTOP 1 · PRIMARY" : "LAPTOP 2 · STANDBY"}</p>
+          <p className="eyebrow">{server.id === "primary" ? "WINDOWS LAPTOP · PRIMARY" : "MAC LAPTOP · STANDBY"}</p>
           <h3>{server.metrics?.hostname ?? server.id}</h3>
+          <p>{server.id === "standby" ? "macOS host agent · Docker dummy app" : "Native Windows app and agent"}{server.metrics?.architecture ? ` · ${server.metrics.architecture}` : ""}</p>
           <p>App: {server.app_health.status} · Metrics: {server.metrics_available ? "available" : "unavailable"}</p>
           <p>CPU {percent(server.metrics?.cpu_percent)} · RAM {percent(server.metrics?.memory_percent)}</p>
           <p>App rate: {server.traffic_available ? (server.id === "primary" ? traffic : standbyTraffic)[0]?.request_rate_per_second?.toFixed(2) ?? "—" : "—"} requests/sec</p>
@@ -132,7 +133,7 @@ export default async function Home() {
           <section className="panel" aria-labelledby="prediction-heading">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">AI PREVIEW</p>
+                <p className="eyebrow">AI FORECAST</p>
                 <h3 id="prediction-heading">Traffic surge forecast</h3>
               </div>
             </div>
@@ -147,9 +148,9 @@ export default async function Home() {
                 {prediction.scored_at && <p className="prediction-detail">Scored {clock(prediction.scored_at)}</p>}
               </>
             ) : (
-              <p className="empty-state">Prediction unavailable: {prediction?.reason ?? "controller unavailable"}.</p>
+              <p className="empty-state">{prediction?.reason ?? "Waiting for the Pi prediction service"}.</p>
             )}
-            <p className="panel-note">Traffic forecasts need measured capacity and explicit deployment validation before the Pi uses them for early activation. The sustained CPU trigger works independently.</p>
+            <p className="panel-note">The trained model runs on the Pi and needs 60 complete minutes of app traffic history. Automatic standby wake and traffic sharing become available after Laptop 2 is configured and tested.</p>
           </section>
 
           <section className="panel" aria-labelledby="health-heading">
